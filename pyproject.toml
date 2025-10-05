@@ -25,9 +25,9 @@ dependencies = [
     "pandas>=1.5.0",
 ]
 authors = [
-    { name = "Matthew Powers", email = "mpowers@wherobots.com" },
     { name = "Pranav Toggi", email = "pranav@wherobots.com" },
-    { name = "Maxime Petazzoni", email = "max@wherobots.com" }
+    { name = "Maxime Petazzoni", email = "max@wherobots.com" },
+    { name = "Matthew Powers", email = "mpowers@wherobots.com" }
 ]
 
 [project.urls]
