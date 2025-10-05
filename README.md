@@ -4,9 +4,9 @@
 
 `wkls` makes it easy to find global administrative boundaries — from countries to cities — using readable, chainable Python syntax. 
 
-It reads [Overture Maps Foundation](https://overturemaps.org/) GeoParquet data (version 2025-05-21.0) directly from the AWS Open Data Registry.
+It reads [Overture Maps Foundation](https://overturemaps.org/) GeoParquet data (version 2025-09-24.0) directly from the AWS Open Data Registry.
 
-It reads directly from GeoParquet data (version 2025-05-21.0) hosted on the AWS Open Data Registry.
+It reads directly from GeoParquet data (version 2025-09-24.0) hosted on the AWS Open Data Registry.
 
 You can instantly get geometries in formats like Well-known Text (WKT), Well-known Binaries (WKB), HexWKB, GeoJSON, and SVG:
 
