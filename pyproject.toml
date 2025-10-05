@@ -44,4 +44,4 @@ dev = [
 ]
 
 [tool.setuptools.package-data]
-wkls = ["data/overture_zstd22.parquet"]
+wkls = ["data/overture.zstd18.parquet"]
