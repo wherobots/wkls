@@ -31,13 +31,24 @@ CITY_QUERY = """
 
 def _initialize_table():
     """Initialize the wkls table if it doesn't exist. Called once per module import."""
-    # Install and load the spatial extension
-    duckdb.sql("INSTALL spatial")
-    duckdb.load_extension("spatial")
+
+    # Install and load extensions, configure S3, and create table
     duckdb.sql(f"""
+        INSTALL spatial;
+        LOAD spatial;
+        INSTALL httpfs;
+        LOAD httpfs;
+        
+        SET s3_region='us-west-2';
+        SET s3_access_key_id='';
+        SET s3_secret_access_key='';
+        SET s3_session_token='';
+        SET s3_endpoint='s3.amazonaws.com';
+        SET s3_use_ssl=true;
+        
         CREATE TABLE IF NOT EXISTS wkls AS
         SELECT id, country, region, subtype, name
-        FROM '{importlib.resources.files(data)}/overture.zstd18.parquet'
+        FROM '{importlib.resources.files(data)}/overture.zstd18.parquet';
     """)
 
 
