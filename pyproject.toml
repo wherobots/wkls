@@ -1,6 +1,6 @@
 [project]
 name = "wkls"
-version = "0.3.0"
+version = "0.4.3"
 description = "Easy access to global administrative boundaries and geometries via Overture Maps data"
 readme = "README.md"
 license = "Apache-2.0"
@@ -25,9 +25,9 @@ dependencies = [
     "pandas>=1.5.0",
 ]
 authors = [
-    { name = "Matthew Powers", email = "mpowers@wherobots.com" },
     { name = "Pranav Toggi", email = "pranav@wherobots.com" },
-    { name = "Maxime Petazzoni", email = "max@wherobots.com" }
+    { name = "Maxime Petazzoni", email = "max@wherobots.com" },
+    { name = "Matthew Powers", email = "mpowers@wherobots.com" }
 ]
 
 [project.urls]
@@ -44,4 +44,4 @@ dev = [
 ]
 
 [tool.setuptools.package-data]
-wkls = ["data/overture_zstd22.parquet"]
+wkls = ["data/overture.zstd18.parquet"]
