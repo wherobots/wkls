@@ -65,6 +65,7 @@ def _initialize_table():
         FROM '{importlib.resources.files(data)}/overture_land.zstd.parquet';
     """)
 
+
 # Initialize the table when the module is imported
 _initialize_table()
 
@@ -236,8 +237,6 @@ class Wkl:
             params = (country_iso,)
         elif len(self.chain) == 2:
             country_iso = self.chain[0].upper()
-
-
             if self._has_region:
                 region_iso = country_iso + "-" + self.chain[1].upper()
                 query = REGION_QUERY

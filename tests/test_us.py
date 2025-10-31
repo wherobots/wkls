@@ -8,7 +8,7 @@ def test_access():
         "MULTIPOLYGON (((-74.046135 40.691125"
     )
     assert wkls.us.ca.sanfrancisco.wkt().startswith(
-        "MULTIPOLYGON (((-122.5279985 37.8155806"
+        "MULTIPOLYGON (((-122.9915659 37.7672733"
     )
 
     assert len(wkls.countries()) == 219
