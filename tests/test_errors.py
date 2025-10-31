@@ -2,6 +2,11 @@ import pytest
 import wkls
 
 
+def test_countries_without_region():
+    with pytest.raises(ValueError) as exc_info:
+        wkls.fk.regions()
+    assert "The country 'FK' does not have regions in the dataset" in str(exc_info.value)
+
 def test_empty_chain_error():
     """Test that empty chains raise appropriate errors."""
     # Create a new Wkl instance without any chain
@@ -14,6 +19,12 @@ def test_empty_chain_error():
     assert "No attributes in the chain" in str(exc_info.value)
     assert "wkls.country" in str(exc_info.value)
 
+def test_dependencies_chaining_error():
+    """Test that dependencies() cannot be called on chained objects."""
+    with pytest.raises(ValueError) as exc_info:
+        wkls.us.dependencies()
+    assert "dependencies() can only be called on the root object" in str(exc_info.value)
+    assert "wkls.dependencies()" in str(exc_info.value)
 
 def test_countries_chaining_error():
     """Test that countries() cannot be called on chained objects."""
