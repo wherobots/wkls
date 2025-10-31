@@ -43,6 +43,7 @@ COUNTRY_REGION_CHECK_QUERY = """
     AND region IS NULL
 """
 
+
 def _initialize_table():
     """Initialize the wkls table if it doesn't exist. Called once per module import."""
 
@@ -179,13 +180,14 @@ class ChainableDataFrame(pd.DataFrame):
 
 
 class Wkl:
-
     _has_region = True
 
     def __init__(self, chain=None):
         if chain and len(chain) >= 1:
             country_iso = chain[0].upper()
-            df_check = duckdb.sql(COUNTRY_REGION_CHECK_QUERY, params=(country_iso,)).df()
+            df_check = duckdb.sql(
+                COUNTRY_REGION_CHECK_QUERY, params=(country_iso,)
+            ).df()
             # If the query returns any rows, it means it has no regions
             self._has_region = df_check.empty
         self.chain = chain or []
@@ -322,7 +324,7 @@ class Wkl:
             country_iso = self.chain[0].upper()
 
             if self._has_region:
-                query = f"""
+                query = """
                     SELECT * FROM wkls
                     WHERE country = ?
                         AND subtype = 'region'
@@ -346,7 +348,7 @@ class Wkl:
                     "counties() cannot be called on a country alone. Use wkls.country.region.counties() to get counties for a region."
                 )
             else:
-                query = f"""
+                query = """
                                     SELECT * FROM wkls
                                     WHERE country = ?
                                       AND subtype = 'county'
@@ -376,12 +378,12 @@ class Wkl:
                 )
             else:
                 country_iso = self.chain[0].upper()
-                query = f"""
+                query = """
                                     SELECT * FROM wkls
                                     WHERE country = ?
                                       AND subtype IN ('locality', 'localadmin')
                                 """
-                df = duckdb.sql(query, params=(country_iso, )).df()
+                df = duckdb.sql(query, params=(country_iso,)).df()
                 return df
 
         if len(self.chain) == 3:

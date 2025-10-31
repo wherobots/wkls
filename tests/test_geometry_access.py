@@ -9,6 +9,7 @@ import wkls
 def stoneyridge() -> wkls.Wkl:
     return wkls.fk.stoneyridge
 
+
 @pytest.fixture
 def sf() -> wkls.Wkl:
     # noinspection PyUnresolvedReferences
