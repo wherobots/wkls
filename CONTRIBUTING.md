@@ -7,7 +7,7 @@ We welcome contributions! Whether you're fixing bugs, adding features, improving
 1. **Fork and clone** the repository
 2. **Set up the development environment**:
    ```bash
-   cd wkts
+   cd wkls
    uv sync --all-extras --dev
    ```
 3. **Run the tests** to make sure everything works:
