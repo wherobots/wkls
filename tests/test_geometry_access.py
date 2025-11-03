@@ -6,6 +6,11 @@ import wkls
 
 
 @pytest.fixture
+def stoneyridge() -> wkls.Wkl:
+    return wkls.fk.stoneyridge
+
+
+@pytest.fixture
 def sf() -> wkls.Wkl:
     # noinspection PyUnresolvedReferences
     return wkls.us.ca.sanfrancisco
@@ -36,3 +41,8 @@ def test_geojson(sf):
 def test_svg(sf):
     geom = sf.svg()
     assert isinstance(geom, str)
+
+
+def test_countries_without_region(stoneyridge):
+    geom = stoneyridge.wkt()
+    assert geom.startswith("POLYGON")

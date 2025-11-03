@@ -2,24 +2,22 @@ import wkls
 
 
 def test_access():
-    assert wkls.us.wkt().startswith("MULTIPOLYGON (((-160.4542228 21.9045702")
-    assert wkls.us.ca.wkt().startswith("MULTIPOLYGON (((-119.609295 33.318229")
-    assert wkls.us.ny.cityofnewyork.wkt().startswith(
-        "MULTIPOLYGON (((-74.046135 40.691125"
-    )
+    assert wkls.us.wkt().startswith("MULTIPOLYGON (((-116.2887742 32.6039558")
+    assert wkls.us.ca.wkt().startswith("MULTIPOLYGON (((-117.1258989 36.9409467")
+    assert wkls.us.ny.newyork.wkt().startswith("MULTIPOLYGON (((-74.046135 40.691125")
     assert wkls.us.ca.sanfrancisco.wkt().startswith(
-        "MULTIPOLYGON (((-122.9871818 37.7640703"
+        "MULTIPOLYGON (((-122.5279985 37.8155806"
     )
 
-    assert len(wkls.countries()) == 378
-    assert len(wkls.us.regions()) == 74
+    assert len(wkls.countries()) == 219
+    assert len(wkls.us.regions()) == 51
     assert len(wkls["IN"]["MH"].counties()) == 36
     assert len(wkls["IN"]["MH"].cities()) == 327
 
     # Test San Francisco search returns DataFrame directly
     san_francisco_results = wkls["us"]["ca"]["%San Francisco%"]
-    assert len(san_francisco_results) == 3, (
-        "San Francisco search should return exactly three results"
+    assert len(san_francisco_results) == 2, (
+        "San Francisco search should return exactly two results"
     )
     assert "San Francisco" in san_francisco_results["name"].str.cat(sep=" "), (
         "Results should contain San Francisco"

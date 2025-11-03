@@ -7,10 +7,10 @@ import pandas as pd
 OVERTURE_VERSION = "2025-09-24.0"
 S3_PARQUET_PATH = f"s3://overturemaps-us-west-2/release/{OVERTURE_VERSION}/theme=divisions/type=division_area/*"
 
-COUNTRY_QUERY = """
+COUNTRY_DEPENDENCY_QUERY = """
     SELECT * FROM wkls
     WHERE country = ?
-      AND subtype = 'country'
+      AND subtype IN ('country', 'dependency')
 """
 
 REGION_QUERY = """
@@ -26,6 +26,21 @@ CITY_QUERY = """
       AND region = ?
       AND subtype IN ('county', 'locality', 'localadmin')
       AND REPLACE(name, ' ', '') ILIKE REPLACE(?, ' ', '')
+"""
+
+CITY_QUERY_WITHOUT_REGION = """
+    SELECT * FROM wkls
+    WHERE country = ?
+      AND subtype IN ('county', 'locality', 'localadmin')
+      AND REPLACE(name, ' ', '') ILIKE REPLACE(?, ' ', '')
+"""
+
+
+COUNTRY_REGION_CHECK_QUERY = """
+    SELECT * FROM wkls
+    WHERE country = ?
+    AND subtype != 'country'
+    AND region IS NULL
 """
 
 
@@ -48,7 +63,7 @@ def _initialize_table():
         
         CREATE TABLE IF NOT EXISTS wkls AS
         SELECT id, country, region, subtype, name
-        FROM '{importlib.resources.files(data)}/overture.zstd18.parquet';
+        FROM '{importlib.resources.files(data)}/overture_land.zstd.parquet';
     """)
 
 
@@ -129,6 +144,11 @@ class ChainableDataFrame(pd.DataFrame):
         wkl = Wkl(self._chain)
         return wkl.svg()
 
+    def dependencies(self):
+        """Get all dependencies."""
+        wkl = Wkl(self._chain)
+        return wkl.dependencies()
+
     def countries(self):
         """Get all countries."""
         wkl = Wkl(self._chain)
@@ -160,7 +180,16 @@ class ChainableDataFrame(pd.DataFrame):
 
 
 class Wkl:
+    _has_region = True
+
     def __init__(self, chain=None):
+        if chain and len(chain) >= 1:
+            country_iso = chain[0].upper()
+            df_check = duckdb.sql(
+                COUNTRY_REGION_CHECK_QUERY, params=(country_iso,)
+            ).df()
+            # If the query returns any rows, it means it has no regions
+            self._has_region = df_check.empty
         self.chain = chain or []
 
     def overture_version(self):
@@ -206,13 +235,18 @@ class Wkl:
             )
         elif len(self.chain) == 1:
             country_iso = self.chain[0].upper()
-            query = COUNTRY_QUERY
+            query = COUNTRY_DEPENDENCY_QUERY
             params = (country_iso,)
         elif len(self.chain) == 2:
             country_iso = self.chain[0].upper()
-            region_iso = country_iso + "-" + self.chain[1].upper()
-            query = REGION_QUERY
-            params = (country_iso, region_iso)
+            if self._has_region:
+                region_iso = country_iso + "-" + self.chain[1].upper()
+                query = REGION_QUERY
+                params = (country_iso, region_iso)
+            else:
+                query = CITY_QUERY_WITHOUT_REGION
+                params = (country_iso, self.chain[1].lower())
+
         elif len(self.chain) == 3:
             country_iso = self.chain[0].upper()
             region_iso = country_iso + "-" + self.chain[1].upper()
@@ -253,6 +287,20 @@ class Wkl:
             f"ST_AsSVG(geometry, {str(relative).lower()}, {precision})"
         )
 
+    def dependencies(self):
+        if self.chain:
+            raise ValueError(
+                "dependencies() can only be called on the root object. Use wkls.dependencies() instead of chaining."
+            )
+
+        query = """
+            SELECT DISTINCT id, country, subtype, name
+            FROM wkls
+            WHERE subtype = 'dependency'
+        """
+        df = duckdb.sql(query).df()
+        return df
+
     def countries(self):
         if self.chain:
             raise ValueError(
@@ -274,25 +322,40 @@ class Wkl:
             )
         if len(self.chain) == 1:
             country_iso = self.chain[0].upper()
-            query = f"""
-                SELECT * FROM wkls
-                WHERE country = '{country_iso}'
-                    AND subtype = 'region'
-            """
-            df = duckdb.sql(query).df()
-            return df
+
+            if self._has_region:
+                query = """
+                    SELECT * FROM wkls
+                    WHERE country = ?
+                        AND subtype = 'region'
+                """
+                df = duckdb.sql(query, params=(country_iso,)).df()
+                return df
+            else:
+                raise ValueError(
+                    f"The country '{country_iso}' does not have regions in the dataset. Please directly call wkls.{str.lower(country_iso)}.counties() or wkls.{str.lower(country_iso)}.cities() to access its counties or cities."
+                )
 
     def counties(self):
         if not self.chain or len(self.chain) > 2:
             raise ValueError(
                 "counties() requires exactly two levels of chaining. Use wkls.country.region.counties() to get counties for a region."
             )
+        country_iso = self.chain[0].upper()
         if len(self.chain) == 1:
-            raise ValueError(
-                "counties() cannot be called on a country alone. Use wkls.country.region.counties() to get counties for a region."
-            )
+            if self._has_region:
+                raise ValueError(
+                    "counties() cannot be called on a country alone. Use wkls.country.region.counties() to get counties for a region."
+                )
+            else:
+                query = """
+                                    SELECT * FROM wkls
+                                    WHERE country = ?
+                                      AND subtype = 'county'
+                                """
+                df = duckdb.sql(query, params=(country_iso,)).df()
+                return df
         if len(self.chain) == 2:
-            country_iso = self.chain[0].upper()
             region_iso = country_iso + "-" + self.chain[1].upper()
             query = f"""
                 SELECT * FROM wkls
@@ -309,9 +372,20 @@ class Wkl:
                 "cities() requires exactly two levels of chaining. Use wkls.country.region.cities() to get cities for a region."
             )
         if len(self.chain) == 1:
-            raise ValueError(
-                "cities() cannot be called on a country alone. Use wkls.country.region.cities() to get cities for a region."
-            )
+            if self._has_region:
+                raise ValueError(
+                    "cities() cannot be called on a country alone. Use wkls.country.region.cities() to get cities for a region."
+                )
+            else:
+                country_iso = self.chain[0].upper()
+                query = """
+                                    SELECT * FROM wkls
+                                    WHERE country = ?
+                                      AND subtype IN ('locality', 'localadmin')
+                                """
+                df = duckdb.sql(query, params=(country_iso,)).df()
+                return df
+
         if len(self.chain) == 3:
             raise ValueError(
                 "cities() cannot be called on a specific city. Use wkls.country.region.cities() to get cities for a region."
