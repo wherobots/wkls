@@ -25,7 +25,7 @@ print(wkls.overture_version())
 ```bash
 pip install wkls
 ```
-> This command alsoloads DuckDB with its related spatial extension.
+> This command also loads DuckDB with its related spatial extension.
 
 ## Quick Start
 
