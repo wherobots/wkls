@@ -1,6 +1,6 @@
 [project]
 name = "wkls"
-version = "0.4.4"
+version = "0.4.5"
 description = "Easy access to global administrative boundaries and geometries via Overture Maps data"
 readme = "README.md"
 license = "Apache-2.0"
