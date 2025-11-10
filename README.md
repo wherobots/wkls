@@ -2,11 +2,9 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-`wkls` makes it easy to find global administrative boundaries — from countries to cities — using readable, chainable Python syntax. 
+`wkls` makes it easy to find global administrative boundaries — from countries to cities — using readable, chainable Python syntax.
 
 It reads [Overture Maps Foundation](https://overturemaps.org/) GeoParquet data (version 2025-09-24.0) directly from the AWS Open Data Registry.
-
-It reads directly from GeoParquet data (version 2025-09-24.0) hosted on the AWS Open Data Registry.
 
 You can instantly get geometries in formats like Well-known Text (WKT), Well-known Binaries (WKB), HexWKB, GeoJSON, and SVG:
 
@@ -38,7 +36,7 @@ import wkls
 usa_wkt = wkls.us.wkt()
 print(f"USA geometry: {usa_wkt[:50]}...")
 
-# Get state/region geometry  
+# Get state/region geometry
 california_geojson = wkls.us.ca.geojson()
 
 # Get city geometry
@@ -120,7 +118,7 @@ wkls.fk.cities()
 You can check which version of the Overture Maps dataset is being used:
 
 ```python
-print(wkls.overture_version())  
+print(wkls.overture_version())
 ```
 
 ```sh
@@ -164,6 +162,13 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENCE) file for details.
+`wkls` includes, references, and leverages data from the "Divisions" theme of [Overture](https://overturemaps.org), from Overture Maps Foundation:
+
+ * © OpenStreetMap contributors. Available under the [Open Database License](https://www.openstreetmap.org/copyright).
+ * [geoBoundaries](https://www.geoboundaries.org/). Available under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+ * [Esri Community Maps contributors](https://communitymaps.arcgis.com/home/). Available under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+ * [Land Information New Zealand (LINZ)](https://www.linz.govt.nz/). Available under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
 
 ## Acknowledgments
 
