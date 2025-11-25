@@ -5,7 +5,9 @@ def test_access():
     assert wkls.us.wkt().startswith("MULTIPOLYGON (((-68.383447 47.3194761")
     assert wkls.us.ca.wkt().startswith("MULTIPOLYGON (((-117.1258989 36.9409467")
     assert wkls.us.ny.newyork.wkt().startswith("MULTIPOLYGON (((-74.046135 40.691125")
-    assert wkls.us.ny.cityofnewyork.wkt().startswith("MULTIPOLYGON (((-74.046135 40.691125")
+    assert wkls.us.ny.cityofnewyork.wkt().startswith(
+        "MULTIPOLYGON (((-74.046135 40.691125"
+    )
     assert wkls.us.ca.sanfrancisco.wkt().startswith(
         "MULTIPOLYGON (((-122.5279985 37.8155806"
     )
