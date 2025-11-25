@@ -1,0 +1,2 @@
+[tool.poetry.dependencies]
+pytest = "^7.0"
