@@ -52,6 +52,17 @@ print(f"US regions: {len(wkls.us.regions())}")
 print(f"CA counties: {len(wkls.us.ca.counties())}")
 ```
 
+## Handling namespace collisions
+
+Some region or locality names overlap with `pandas.DataFrame` attributes inherited by `ChainableDataFrame` (for example `wkls.us.ne` triggers the `.ne` “not equal” method rather than returning Nebraska). When a name collides with any DataFrame member or even Python keywords, use the already-supported dict-style access to force a lookup:
+
+```python
+wkls["us"]["ne"].wkt()                # Nebraska (avoids calling DataFrame.ne)
+wkls['at']['1'].regions()             # Austria's region 1
+```
+
+You can mix attribute and dict access freely. Prefer the bracket form whenever you suspect a collision—especially with short names, abbreviations, or words that double as python operations.
+
 ## Usage
 
 ### Accessing geometry
