@@ -4,7 +4,7 @@ from . import data
 import pandas as pd
 
 # Overture Maps dataset version
-OVERTURE_VERSION = "2025-09-24.0"
+OVERTURE_VERSION = "2025-11-19.0"
 S3_PARQUET_PATH = f"s3://overturemaps-us-west-2/release/{OVERTURE_VERSION}/theme=divisions/type=division_area/*"
 
 COUNTRY_DEPENDENCY_QUERY = """
@@ -25,14 +25,22 @@ CITY_QUERY = """
     WHERE country = ?
       AND region = ?
       AND subtype IN ('county', 'locality', 'localadmin')
-      AND REPLACE(name, ' ', '') ILIKE REPLACE(?, ' ', '')
+      AND (
+        REPLACE(name_primary, ' ', '') ILIKE REPLACE(?, ' ', '')
+        OR 
+        REPLACE(name_en, ' ', '') ILIKE REPLACE(?, ' ', '')
+    )
 """
 
 CITY_QUERY_WITHOUT_REGION = """
     SELECT * FROM wkls
     WHERE country = ?
       AND subtype IN ('county', 'locality', 'localadmin')
-      AND REPLACE(name, ' ', '') ILIKE REPLACE(?, ' ', '')
+      AND (
+        REPLACE(name_primary, ' ', '') ILIKE REPLACE(?, ' ', '')
+        OR 
+        REPLACE(name_en, ' ', '') ILIKE REPLACE(?, ' ', '')
+    )
 """
 
 
@@ -62,8 +70,8 @@ def _initialize_table():
         SET s3_use_ssl=true;
         
         CREATE TABLE IF NOT EXISTS wkls AS
-        SELECT id, country, region, subtype, name
-        FROM '{importlib.resources.files(data)}/overture_land.zstd.parquet';
+        SELECT id, country, region, subtype, name_primary, name_en
+        FROM '{importlib.resources.files(data)}/overture.zstd18.parquet';
     """)
 
 
@@ -245,13 +253,13 @@ class Wkl:
                 params = (country_iso, region_iso)
             else:
                 query = CITY_QUERY_WITHOUT_REGION
-                params = (country_iso, self.chain[1].lower())
+                params = (country_iso, self.chain[1].lower(), self.chain[1].lower())
 
         elif len(self.chain) == 3:
             country_iso = self.chain[0].upper()
             region_iso = country_iso + "-" + self.chain[1].upper()
             query = CITY_QUERY
-            params = (country_iso, region_iso, self.chain[2])
+            params = (country_iso, region_iso, self.chain[2], self.chain[2])
         return duckdb.sql(query, params=params).df()
 
     def _get_geom_expr(self, expr: str):
@@ -294,7 +302,7 @@ class Wkl:
             )
 
         query = """
-            SELECT DISTINCT id, country, subtype, name
+            SELECT DISTINCT id, country, subtype, name_primary, name_en
             FROM wkls
             WHERE subtype = 'dependency'
         """
@@ -308,7 +316,7 @@ class Wkl:
             )
 
         query = """
-            SELECT DISTINCT id, country, subtype, name
+            SELECT DISTINCT id, country, subtype, name_primary, name_en
             FROM wkls
             WHERE subtype = 'country'
         """
