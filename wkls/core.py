@@ -5,7 +5,7 @@ import pandas as pd
 
 # Overture Maps dataset version
 OVERTURE_VERSION = "2025-11-19.0"
-S3_PARQUET_PATH = f"s3://overturemaps-us-west-2/release/{OVERTURE_VERSION}/theme=divisions/type=division_area/*"
+HF_PARQUET_PATH = f"hf://datasets/wherobots/overturemaps-us-west-2/release/{OVERTURE_VERSION}/theme=divisions/type=division_area/*"
 
 COUNTRY_DEPENDENCY_QUERY = """
     SELECT * FROM wkls
@@ -270,7 +270,7 @@ class Wkl:
         geom_id = df.iloc[0]["id"]
         query = f"""
             SELECT {expr}
-            FROM parquet_scan('{S3_PARQUET_PATH}')
+            FROM parquet_scan('{HF_PARQUET_PATH}')
             WHERE id = '{geom_id}'
         """
         result_df = duckdb.sql(query).df()
