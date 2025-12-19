@@ -1,52 +1,52 @@
-import duckdb
 import importlib.resources
 from . import data
-import pandas as pd
+import os
+import sedonadb
+from sqlescapy import sqlescape
 
 # Overture Maps dataset version
-OVERTURE_VERSION = "2025-11-19.0"
-HF_PARQUET_PATH = f"hf://datasets/wherobots/overturemaps-us-west-2/release/{OVERTURE_VERSION}/theme=divisions/type=division_area/*"
+OVERTURE_VERSION = "2025-12-17.0"
+OVERTURE_URI = f"s3://overturemaps-us-west-2/release/{OVERTURE_VERSION}/theme=divisions/type=division_area/"
 
 COUNTRY_DEPENDENCY_QUERY = """
     SELECT * FROM wkls
-    WHERE country = ?
+    WHERE country = '{country}'
       AND subtype IN ('country', 'dependency')
 """
 
 REGION_QUERY = """
     SELECT * FROM wkls
-    WHERE country = ?
-      AND region = ?
+    WHERE country = '{country}'
+      AND region = '{region}'
       AND subtype = 'region'
 """
 
 CITY_QUERY = """
     SELECT * FROM wkls
-    WHERE country = ?
-      AND region = ?
+    WHERE country = '{country}'
+      AND region = '{region}'
       AND subtype IN ('county', 'locality', 'localadmin')
       AND (
-        REPLACE(name_primary, ' ', '') ILIKE REPLACE(?, ' ', '')
-        OR 
-        REPLACE(name_en, ' ', '') ILIKE REPLACE(?, ' ', '')
+        REPLACE(name_primary, ' ', '') ILIKE REPLACE('{city}', ' ', '')
+        OR
+        REPLACE(name_en, ' ', '') ILIKE REPLACE('{city}', ' ', '')
     )
 """
 
 CITY_QUERY_WITHOUT_REGION = """
     SELECT * FROM wkls
-    WHERE country = ?
+    WHERE country = '{country}'
       AND subtype IN ('county', 'locality', 'localadmin')
       AND (
-        REPLACE(name_primary, ' ', '') ILIKE REPLACE(?, ' ', '')
-        OR 
-        REPLACE(name_en, ' ', '') ILIKE REPLACE(?, ' ', '')
+        REPLACE(name_primary, ' ', '') ILIKE REPLACE('{city}', ' ', '')
+        OR
+        REPLACE(name_en, ' ', '') ILIKE REPLACE('{city}', ' ', '')
     )
 """
 
-
 COUNTRY_REGION_CHECK_QUERY = """
     SELECT * FROM wkls
-    WHERE country = ?
+    WHERE country = '{country}'
     AND subtype != 'country'
     AND region IS NULL
 """
@@ -55,37 +55,30 @@ COUNTRY_REGION_CHECK_QUERY = """
 def _initialize_table():
     """Initialize the wkls table if it doesn't exist. Called once per module import."""
 
-    # Install and load extensions, configure S3, and create table
-    duckdb.sql(f"""
-        INSTALL spatial;
-        LOAD spatial;
-        INSTALL httpfs;
-        LOAD httpfs;
-        
-        SET s3_region='us-west-2';
-        SET s3_access_key_id='';
-        SET s3_secret_access_key='';
-        SET s3_session_token='';
-        SET s3_endpoint='s3.amazonaws.com';
-        SET s3_use_ssl=true;
-        
-        CREATE TABLE IF NOT EXISTS wkls AS
-        SELECT id, country, region, subtype, name_primary, name_en
-        FROM '{importlib.resources.files(data)}/overture.zstd18.parquet';
-    """)
+    sedona = sedonadb.connect()
 
+    # TODO: once https://github.com/apache/datafusion/pull/18873 is merged in
+    # DataFusion this should no longer be required.
+    sedona.sql("SET datafusion.execution.parquet.pushdown_filters = true")
+
+    sedona.read_parquet(f"{importlib.resources.files(data)}/overture.zstd18.parquet").to_view("wkls")
+    sedona.read_parquet(OVERTURE_URI, options={
+        "aws.skip_signature": True,
+        "aws.region": "us-west-2",
+    }).to_view("overture")
+    return sedona
 
 # Initialize the table when the module is imported
-_initialize_table()
+sedona = _initialize_table()
 
 
-class ChainableDataFrame(pd.DataFrame):
+class ChainableDataFrame(sedonadb.dataframe.DataFrame):
     """A DataFrame that maintains chaining capability for the wkls library."""
 
     _metadata = ["_chain"]
 
-    def __init__(self, data, chain=None):
-        super().__init__(data)
+    def __init__(self, df, chain=None):
+        super().__init__(df._ctx, df._impl, df._options)
         object.__setattr__(self, "_chain", chain or [])
 
     def __getattr__(self, attr):
@@ -127,27 +120,27 @@ class ChainableDataFrame(pd.DataFrame):
             return new_wkl.resolve()
         return new_wkl
 
-    def wkt(self):
+    def wkt(self) -> str:
         """Get WKT geometry for the first result."""
         wkl = Wkl(self._chain)
         return wkl.wkt()
 
-    def wkb(self):
+    def wkb(self) -> bytes:
         """Get WKB geometry for the first result."""
         wkl = Wkl(self._chain)
         return wkl.wkb()
 
-    def hexwkb(self):
+    def hexwkb(self) -> str:
         """Get HEX WKB geometry for the first result."""
         wkl = Wkl(self._chain)
         return wkl.hexwkb()
 
-    def geojson(self):
+    def geojson(self) -> str:
         """Get GeoJSON geometry for the first result."""
         wkl = Wkl(self._chain)
         return wkl.geojson()
 
-    def svg(self):
+    def svg(self) -> str:
         """Get SVG geometry for the first result."""
         wkl = Wkl(self._chain)
         return wkl.svg()
@@ -193,11 +186,11 @@ class Wkl:
     def __init__(self, chain=None):
         if chain and len(chain) >= 1:
             country_iso = chain[0].upper()
-            df_check = duckdb.sql(
-                COUNTRY_REGION_CHECK_QUERY, params=(country_iso,)
-            ).df()
+            df_check = sedona.sql(
+                COUNTRY_REGION_CHECK_QUERY.format(country=sqlescape(country_iso))
+            )
             # If the query returns any rows, it means it has no regions
-            self._has_region = df_check.empty
+            self._has_region = df_check.count() == 0
         self.chain = chain or []
 
     def overture_version(self):
@@ -241,59 +234,70 @@ class Wkl:
             raise ValueError(
                 "No attributes in the chain. Use wkls.country or wkls.country.region, etc."
             )
-        elif len(self.chain) == 1:
+
+        params = {}
+
+        if len(self.chain) > 0:
             country_iso = self.chain[0].upper()
             query = COUNTRY_DEPENDENCY_QUERY
-            params = (country_iso,)
-        elif len(self.chain) == 2:
-            country_iso = self.chain[0].upper()
+            params["country"] = country_iso
+
+        if len(self.chain) > 1:
             if self._has_region:
-                region_iso = country_iso + "-" + self.chain[1].upper()
                 query = REGION_QUERY
-                params = (country_iso, region_iso)
+                region_iso = country_iso + "-" + self.chain[1].upper()
+                params["region"] = region_iso
             else:
                 query = CITY_QUERY_WITHOUT_REGION
-                params = (country_iso, self.chain[1].lower(), self.chain[1].lower())
+                city = self.chain[1].lower()
+                params["city"] = city
 
-        elif len(self.chain) == 3:
-            country_iso = self.chain[0].upper()
-            region_iso = country_iso + "-" + self.chain[1].upper()
+        if len(self.chain) > 2:
             query = CITY_QUERY
-            params = (country_iso, region_iso, self.chain[2], self.chain[2])
-        return duckdb.sql(query, params=params).df()
+            region_iso = country_iso + "-" + self.chain[1].upper()
+            city = self.chain[2]
+            params["region"] = region_iso
+            params["city"] = city
+
+        return sedona.sql(query.format(
+            **{k: sqlescape(v) for k, v in params.items()}
+        ))
 
     def _get_geom_expr(self, expr: str):
         df = self.resolve()
-        if df.empty:
+        if df.count() == 0:
             raise ValueError(f"No result found for: {'.'.join(self.chain)}")
 
-        geom_id = df.iloc[0]["id"]
+        geom_id = df.to_pandas().iloc[0]["id"]
         query = f"""
             SELECT {expr}
-            FROM parquet_scan('{HF_PARQUET_PATH}')
+            FROM overture
             WHERE id = '{geom_id}'
         """
-        result_df = duckdb.sql(query).df()
-        if result_df.empty:
+        result_df = sedona.sql(query)
+        if result_df.count() == 0:
             raise ValueError(f"No geometry found for ID: {geom_id}")
-        return result_df.iloc[0, 0]
+        return result_df.to_pandas().iloc[0, 0]
 
-    def wkt(self):
+    def wkt(self) -> str:
         return self._get_geom_expr("ST_AsText(geometry)")
 
-    def wkb(self):
+    def wkb(self) -> bytes:
         return self._get_geom_expr("ST_AsWKB(geometry)")
 
-    def hexwkb(self):
-        return self._get_geom_expr("ST_AsHEXWKB(geometry)")
+    def hexwkb(self) -> str:
+        # return self._get_geom_expr("ST_AsHEXWKB(geometry)")
+        raise NotImplementedError("ST_AsHEXWKB() isn't implemented yet")
 
-    def geojson(self):
-        return self._get_geom_expr("ST_AsGeoJSON(geometry)")
+    def geojson(self) -> str:
+        # return self._get_geom_expr("ST_AsGeoJSON(geometry)")
+        raise NotImplementedError("ST_AsGeoJSON() isn't implemented yet")
 
-    def svg(self, relative: bool = False, precision: int = 15):
-        return self._get_geom_expr(
-            f"ST_AsSVG(geometry, {str(relative).lower()}, {precision})"
-        )
+    def svg(self, relative: bool = False, precision: int = 15) -> str:
+        # return self._get_geom_expr(
+        #     f"ST_AsSVG(geometry, {str(relative).lower()}, {precision})"
+        # )
+        raise NotImplementedError("ST_AsSVG() isn't implemented yet")
 
     def dependencies(self):
         if self.chain:
@@ -306,8 +310,7 @@ class Wkl:
             FROM wkls
             WHERE subtype = 'dependency'
         """
-        df = duckdb.sql(query).df()
-        return df
+        return sedona.sql(query)
 
     def countries(self):
         if self.chain:
@@ -320,8 +323,7 @@ class Wkl:
             FROM wkls
             WHERE subtype = 'country'
         """
-        df = duckdb.sql(query).df()
-        return df
+        return sedona.sql(query)
 
     def regions(self):
         if not self.chain or len(self.chain) > 1:
@@ -334,11 +336,10 @@ class Wkl:
             if self._has_region:
                 query = """
                     SELECT * FROM wkls
-                    WHERE country = ?
+                    WHERE country = '{country}'
                         AND subtype = 'region'
                 """
-                df = duckdb.sql(query, params=(country_iso,)).df()
-                return df
+                return sedona.sql(query.format(country=sqlescape(country_iso)))
             else:
                 raise ValueError(
                     f"The country '{country_iso}' does not have regions in the dataset. Please directly call wkls.{str.lower(country_iso)}.counties() or wkls.{str.lower(country_iso)}.cities() to access its counties or cities."
@@ -357,22 +358,23 @@ class Wkl:
                 )
             else:
                 query = """
-                                    SELECT * FROM wkls
-                                    WHERE country = ?
-                                      AND subtype = 'county'
-                                """
-                df = duckdb.sql(query, params=(country_iso,)).df()
-                return df
+                    SELECT * FROM wkls
+                    WHERE country = '{country}'
+                      AND subtype = 'county'
+                """
+                return sedona.sql(query.format(country=sqlescape(country_iso)))
         if len(self.chain) == 2:
             region_iso = country_iso + "-" + self.chain[1].upper()
-            query = f"""
+            query = """
                 SELECT * FROM wkls
-                WHERE country = '{country_iso}'
-                  AND region = '{region_iso}'
+                WHERE country = '{country}'
+                  AND region = '{region}'
                   AND subtype = 'county'
             """
-            df = duckdb.sql(query).df()
-            return df
+            return sedona.sql(query.format(
+                country=sqlescape(country_iso),
+                region=sqlescape(region_iso)
+            ))
 
     def cities(self):
         if not self.chain:
@@ -387,12 +389,11 @@ class Wkl:
             else:
                 country_iso = self.chain[0].upper()
                 query = """
-                                    SELECT * FROM wkls
-                                    WHERE country = ?
-                                      AND subtype IN ('locality', 'localadmin')
-                                """
-                df = duckdb.sql(query, params=(country_iso,)).df()
-                return df
+                    SELECT * FROM wkls
+                    WHERE country = '{country}'
+                      AND subtype IN ('locality', 'localadmin')
+                """
+                return sedona.sql(query.format(country=sqlescape(country_iso)))
 
         if len(self.chain) == 3:
             raise ValueError(
@@ -405,14 +406,16 @@ class Wkl:
         if len(self.chain) == 2:
             country_iso = self.chain[0].upper()
             region_iso = country_iso + "-" + self.chain[1].upper()
-            query = f"""
+            query = """
                 SELECT * FROM wkls
-                WHERE country = '{country_iso}'
-                  AND region = '{region_iso}'
+                WHERE country = '{country}'
+                  AND region = '{region}'
                   AND subtype IN ('locality', 'localadmin')
             """
-            df = duckdb.sql(query).df()
-            return df
+            return sedona.sql(query.format(
+                country=sqlescape(country_iso),
+                region=sqlescape(region_iso)
+            ))
 
     def subtypes(self):
         if self.chain:
@@ -420,8 +423,5 @@ class Wkl:
                 "subtypes() can only be called on the root object. Use wkls.subtypes() instead of chaining."
             )
 
-        query = """
-            SELECT DISTINCT subtype FROM wkls
-        """
-        df = duckdb.sql(query).df()
-        return df
+        query = """SELECT DISTINCT subtype FROM wkls"""
+        return sedona.sql(query)

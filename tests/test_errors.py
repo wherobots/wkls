@@ -116,7 +116,7 @@ def test_nonexistent_location_errors():
         )  # ZZ is not a valid country code, should return empty DataFrame
         assert len(result) == 0, "Nonexistent country should return empty DataFrame"
     except Exception:
-        pass  # Could be various exceptions from DuckDB depending on validation
+        pass  # Could be various exceptions depending on validation
 
     # Nonexistent region
     try:
@@ -125,11 +125,11 @@ def test_nonexistent_location_errors():
         )  # ZZ is not a valid state code, should return empty DataFrame
         assert len(result) == 0, "Nonexistent region should return empty DataFrame"
     except Exception:
-        pass  # Could be various exceptions from DuckDB depending on validation
+        pass  # Could be various exceptions depending on validation
 
     # Nonexistent city with search pattern (this should return empty results)
     result = wkls.us.ca["%nonexistentcity%"]
-    assert len(result) == 0, "Nonexistent city search should return empty DataFrame"
+    assert result.count() == 0, "Nonexistent city search should return empty DataFrame"
 
 
 def test_geometry_methods_on_empty_results():
