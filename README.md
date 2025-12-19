@@ -4,7 +4,7 @@
 
 `wkls` makes it easy to find global administrative boundaries — from countries to cities — using readable, chainable Python syntax.
 
-It fetches geometries from a mirror of [Overture Maps Foundation](https://overturemaps.org/) GeoParquet data (version 2025-12.17.0) hosted on HuggingFace.
+It fetches geometries from [Overture Maps Foundation](https://overturemaps.org/) GeoParquet data (version 2025-12.17.0) hosted on Registry of Open Data on AWS.
 
 You can instantly get geometries in formats like Well-known Text (WKT), Well-known Binaries (WKB), HexWKB, GeoJSON, and SVG:
 
@@ -34,11 +34,11 @@ import wkls
 usa_wkt = wkls.us.wkt()
 print(f"USA geometry: {usa_wkt[:50]}...")
 
-# Get state/region geometry
-california_geojson = wkls.us.ca.geojson()
+# Get state/region geometry (here, in WKB)
+california_wkb = wkls.us.ca.wkb()
 
-# Get city geometry
-sf_svg = wkls.us.ca.sanfrancisco.svg()
+# Get city geometry (here, in WKT)
+sf_wkt = wkls.us.ca.sanfrancisco.wkt()
 
 # Check dataset version
 print(f"Using Overture Maps data: {wkls.overture_version()}")
