@@ -85,6 +85,10 @@ wkls["us"]["ca"]["sanfrancisco"].wkt() # dictionary-style access
 
 - `.wkt()` – Well-Known Text
 - `.wkb()` – Raw binary WKB
+
+Support for the following formats will come (back) in future versions
+once support is implemented in SedonaDB:
+
 - `.hexwkb()` – Hex-encoded WKB
 - `.geojson()` – GeoJSON string
 - `.svg()` – SVG path string
@@ -133,6 +137,21 @@ print(wkls.overture_version())
 ```
 
 > [!NOTE] The `overture_version()` method is only available at the root level, not on chained objects like `wkls.us.overture_version()`.
+
+### Debug mode
+
+You can enable debug mode to print out the underlying SQL queries
+executed by SedonaDB by setting the `WKLS_DEBUG` environment variable to
+a truthy-value:
+
+```python
+import os
+import wkls
+
+os.environ["WKLS_DEBUG"] = "true"
+
+print(wkls.us.ca.sanfrancisco.wkt())
+```
 
 ## How It Works
 

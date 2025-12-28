@@ -2,11 +2,17 @@ import importlib.resources
 from . import data
 import os
 import sedonadb
-from sqlescapy import sqlescape
+import sqlescapy
+from typing import Callable
+
 
 # Overture Maps dataset version
 OVERTURE_VERSION = "2025-12-17.0"
 OVERTURE_URI = f"s3://overturemaps-us-west-2/release/{OVERTURE_VERSION}/theme=divisions/type=division_area/"
+
+INITIALIZATION_QUERY = """
+    SET datafusion.execution.parquet.pushdown_filters = true
+"""
 
 COUNTRY_DEPENDENCY_QUERY = """
     SELECT * FROM wkls
@@ -51,16 +57,22 @@ COUNTRY_REGION_CHECK_QUERY = """
     AND region IS NULL
 """
 
+def _log_and_query(exec_fn: Callable[str, sedonadb.dataframe.DataFrame], query: str) -> sedonadb.dataframe.DataFrame:
+    if os.environ.get("WKLS_DEBUG", "false").lower() in ["true", "yes", "1"]:
+        print(query)
+    return exec_fn(query)
+
 
 def _initialize_table():
     """Initialize the wkls table if it doesn't exist. Called once per module import."""
 
     sedona = sedonadb.connect()
 
-    # TODO: once https://github.com/apache/datafusion/pull/18873 is merged in
-    # DataFusion this should no longer be required.
-    sedona.sql("SET datafusion.execution.parquet.pushdown_filters = true")
+    # Monkey-patch `.sql()` for debug mode.
+    sedona_sql = sedona.sql
+    sedona.sql = lambda q: _log_and_query(sedona_sql, q)
 
+    sedona.sql(INITIALIZATION_QUERY)
     sedona.read_parquet(f"{importlib.resources.files(data)}/overture.zstd18.parquet").to_view("wkls")
     sedona.read_parquet(OVERTURE_URI, options={
         "aws.skip_signature": True,
@@ -70,6 +82,11 @@ def _initialize_table():
 
 # Initialize the table when the module is imported
 sedona = _initialize_table()
+
+
+def sqlescape(v: str) -> str:
+    # SQL escape, but maintain the use of % for the LIKE operator.
+    return sqlescapy.sqlescape(v).replace("\\%", "%")
 
 
 class ChainableDataFrame(sedonadb.dataframe.DataFrame):
