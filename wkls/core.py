@@ -57,7 +57,10 @@ COUNTRY_REGION_CHECK_QUERY = """
     AND region IS NULL
 """
 
-def _log_and_query(exec_fn: Callable[str, sedonadb.dataframe.DataFrame], query: str) -> sedonadb.dataframe.DataFrame:
+
+def _log_and_query(
+    exec_fn: Callable[str, sedonadb.dataframe.DataFrame], query: str
+) -> sedonadb.dataframe.DataFrame:
     if os.environ.get("WKLS_DEBUG", "false").lower() in ["true", "yes", "1"]:
         print(query)
     return exec_fn(query)
@@ -73,12 +76,18 @@ def _initialize_table():
     sedona.sql = lambda q: _log_and_query(sedona_sql, q)
 
     sedona.sql(INITIALIZATION_QUERY)
-    sedona.read_parquet(f"{importlib.resources.files(data)}/overture.zstd18.parquet").to_view("wkls")
-    sedona.read_parquet(OVERTURE_URI, options={
-        "aws.skip_signature": True,
-        "aws.region": "us-west-2",
-    }).to_view("overture")
+    sedona.read_parquet(
+        f"{importlib.resources.files(data)}/overture.zstd18.parquet"
+    ).to_view("wkls")
+    sedona.read_parquet(
+        OVERTURE_URI,
+        options={
+            "aws.skip_signature": True,
+            "aws.region": "us-west-2",
+        },
+    ).to_view("overture")
     return sedona
+
 
 # Initialize the table when the module is imported
 sedona = _initialize_table()
@@ -276,9 +285,7 @@ class Wkl:
             params["region"] = region_iso
             params["city"] = city
 
-        return sedona.sql(query.format(
-            **{k: sqlescape(v) for k, v in params.items()}
-        ))
+        return sedona.sql(query.format(**{k: sqlescape(v) for k, v in params.items()}))
 
     def _get_geom_expr(self, expr: str):
         df = self.resolve()
@@ -388,10 +395,11 @@ class Wkl:
                   AND region = '{region}'
                   AND subtype = 'county'
             """
-            return sedona.sql(query.format(
-                country=sqlescape(country_iso),
-                region=sqlescape(region_iso)
-            ))
+            return sedona.sql(
+                query.format(
+                    country=sqlescape(country_iso), region=sqlescape(region_iso)
+                )
+            )
 
     def cities(self):
         if not self.chain:
@@ -429,10 +437,11 @@ class Wkl:
                   AND region = '{region}'
                   AND subtype IN ('locality', 'localadmin')
             """
-            return sedona.sql(query.format(
-                country=sqlescape(country_iso),
-                region=sqlescape(region_iso)
-            ))
+            return sedona.sql(
+                query.format(
+                    country=sqlescape(country_iso), region=sqlescape(region_iso)
+                )
+            )
 
     def subtypes(self):
         if self.chain:
