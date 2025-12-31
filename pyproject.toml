@@ -22,7 +22,6 @@ classifiers = [
 ]
 dependencies = [
     "apache-sedona[db]>=1.8.0",
-    "pandas>=1.5.0",
     "sqlescapy>=1.0.1",
 ]
 authors = [

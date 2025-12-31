@@ -1226,7 +1226,6 @@ version = "0.5.0"
 source = { virtual = "." }
 dependencies = [
     { name = "apache-sedona", extra = ["db"] },
-    { name = "pandas" },
     { name = "sqlescapy" },
 ]
 
@@ -1239,7 +1238,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "apache-sedona", extras = ["db"], specifier = ">=1.8.0" },
-    { name = "pandas", specifier = ">=1.5.0" },
     { name = "sqlescapy", specifier = ">=1.0.1" },
 ]
 
