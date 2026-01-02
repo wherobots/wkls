@@ -24,23 +24,26 @@ def test_wkt(sf):
 
 def test_wkb(sf):
     geom = sf.wkb()
-    assert isinstance(geom, bytearray)
+    assert isinstance(geom, bytes)
 
 
 def test_hexwkb(sf):
-    geom = sf.hexwkb()
-    assert isinstance(geom, str)
+    with pytest.raises(NotImplementedError):
+        geom = sf.hexwkb()
+        assert isinstance(geom, str)
 
 
 def test_geojson(sf):
-    geom = sf.geojson()
-    geom = json.loads(geom)
-    assert isinstance(geom, dict)
+    with pytest.raises(NotImplementedError):
+        geom = sf.geojson()
+        geom = json.loads(geom)
+        assert isinstance(geom, dict)
 
 
 def test_svg(sf):
-    geom = sf.svg()
-    assert isinstance(geom, str)
+    with pytest.raises(NotImplementedError):
+        geom = sf.svg()
+        assert isinstance(geom, str)
 
 
 def test_countries_without_region(stoneyridge):

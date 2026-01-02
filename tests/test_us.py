@@ -2,23 +2,23 @@ import wkls
 
 
 def test_access():
-    assert wkls.us.wkt().startswith("MULTIPOLYGON (((-68.383447 47.3194761")
-    assert wkls.us.ca.wkt().startswith("MULTIPOLYGON (((-117.1258989 36.9409467")
-    assert wkls.us.ny.newyork.wkt().startswith("MULTIPOLYGON (((-74.046135 40.691125")
+    assert wkls.us.wkt().startswith("MULTIPOLYGON(((-68.383447 47.3194761")
+    assert wkls.us.ca.wkt().startswith("MULTIPOLYGON(((-117.1258989 36.9409467")
+    assert wkls.us.ny.newyork.wkt().startswith("MULTIPOLYGON(((-74.046135 40.691125")
     assert wkls.us.ny.cityofnewyork.wkt().startswith(
-        "MULTIPOLYGON (((-74.046135 40.691125"
+        "MULTIPOLYGON(((-74.046135 40.691125"
     )
     assert wkls.us.ca.sanfrancisco.wkt().startswith(
-        "MULTIPOLYGON (((-122.5279985 37.8155806"
+        "MULTIPOLYGON(((-122.5279985 37.8155806"
     )
 
-    assert len(wkls.countries()) == 219
-    assert len(wkls.us.regions()) == 51
-    assert len(wkls["IN"]["MH"].counties()) == 36
-    assert len(wkls["IN"]["MH"].cities()) == 329
+    assert wkls.countries().count() == 219
+    assert wkls.us.regions().count() == 51
+    assert wkls["IN"]["MH"].counties().count() == 36
+    assert wkls["IN"]["MH"].cities().count() == 329
 
     # Test San Francisco search returns DataFrame directly
-    san_francisco_results = wkls["us"]["ca"]["%San Francisco%"]
+    san_francisco_results = wkls["us"]["ca"]["%San Francisco%"].to_pandas()
     assert len(san_francisco_results) == 2, (
         "San Francisco search should return exactly two results"
     )
@@ -27,7 +27,7 @@ def test_access():
     )
 
     # Test subtypes
-    subtypes_df = wkls.subtypes()
+    subtypes_df = wkls.subtypes().to_pandas()
     expected_subtypes = ["country", "region", "county", "locality", "localadmin"]
     for subtype in expected_subtypes:
         assert subtype in subtypes_df["subtype"].values, (
@@ -41,7 +41,7 @@ def test_overture_version():
     assert hasattr(wkls, "overture_version")
     version = wkls.overture_version()
     assert isinstance(version, str)
-    assert "2025-11-19.0" in version  # Current version
+    assert "2025-12-17.0" in version  # Current version
     print(f"Using Overture Maps dataset version: {version}")
 
     # Should NOT work on chained objects - method should not exist

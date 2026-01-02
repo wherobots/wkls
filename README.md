@@ -4,18 +4,15 @@
 
 `wkls` makes it easy to find global administrative boundaries — from countries to cities — using readable, chainable Python syntax.
 
-It fetches geometries from a mirror of [Overture Maps Foundation](https://overturemaps.org/) GeoParquet data (version 2025-11-19.0) hosted on HuggingFace.
+It fetches geometries from [Overture Maps Foundation](https://overturemaps.org/) GeoParquet data (version 2025-12.17.0) hosted on Registry of Open Data on AWS.
 
 You can instantly get geometries in formats like Well-known Text (WKT), Well-known Binaries (WKB), HexWKB, GeoJSON, and SVG:
 
 ```python
 import wkls
 
-# prints "MULTIPOLYGON (((-122.5279985 37.8155806...)))"
+# Prints "MULTIPOLYGON (((-122.5279985 37.8155806...)))"
 print(wkls.us.ca.sanfrancisco.wkt())
-
-#prints "2025-11-19.0"
-print(wkls.overture_version())
 ```
 
 ## Installation
@@ -23,7 +20,8 @@ print(wkls.overture_version())
 ```bash
 pip install wkls
 ```
-> This command also loads DuckDB with its related spatial extension.
+
+> [!NOTE] This command also installs Apache SedonaDB, which is used internally by WKLs.
 
 ## Quick Start
 
@@ -36,11 +34,11 @@ import wkls
 usa_wkt = wkls.us.wkt()
 print(f"USA geometry: {usa_wkt[:50]}...")
 
-# Get state/region geometry
-california_geojson = wkls.us.ca.geojson()
+# Get state/region geometry (here, in WKB)
+california_wkb = wkls.us.ca.wkb()
 
-# Get city geometry
-sf_svg = wkls.us.ca.sanfrancisco.svg()
+# Get city geometry (here, in WKT)
+sf_wkt = wkls.us.ca.sanfrancisco.wkt()
 
 # Check dataset version
 print(f"Using Overture Maps data: {wkls.overture_version()}")
@@ -67,7 +65,8 @@ You can mix attribute and dict access freely. Prefer the bracket form whenever y
 
 ### Accessing geometry
 
-wkls supports **up to 3 chained attributes**:
+`wkls` supports **up to 3 chained attributes**:
+
 1. **Country/Dependencies** (required) – must be a 2-letter ISO 3166-1 alpha-2 code (e.g. `us`, `de`, `fr`)
 2. **Region** (optional) – must be a valid region code suffix as specified by Overture (e.g. `ca` for `US-CA`, `ny` for `US-NY`)
 3. **Place** (optional) – a **name** match against subtypes: `county`, `locality`, or `neighborhood`
@@ -86,6 +85,10 @@ wkls["us"]["ca"]["sanfrancisco"].wkt() # dictionary-style access
 
 - `.wkt()` – Well-Known Text
 - `.wkb()` – Raw binary WKB
+
+Support for the following formats will come (back) in future versions
+once support is implemented in SedonaDB:
+
 - `.hexwkb()` – Hex-encoded WKB
 - `.geojson()` – GeoJSON string
 - `.svg()` – SVG path string
@@ -130,13 +133,25 @@ You can check which version of the Overture Maps dataset is being used:
 
 ```python
 print(wkls.overture_version())
+"2025-12.17.0"
 ```
 
-```sh
-> "2025-11-19.0"
-```
+> [!NOTE] The `overture_version()` method is only available at the root level, not on chained objects like `wkls.us.overture_version()`.
 
-> **Note**: The `overture_version()` method is only available at the root level, not on chained objects like `wkls.us.overture_version()`.
+### Debug mode
+
+You can enable debug mode to print out the underlying SQL queries
+executed by SedonaDB by setting the `WKLS_DEBUG` environment variable to
+a truthy-value:
+
+```python
+import os
+import wkls
+
+os.environ["WKLS_DEBUG"] = "true"
+
+print(wkls.us.ca.sanfrancisco.wkt())
+```
 
 ## How It Works
 
@@ -184,5 +199,5 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENC
 ## Acknowledgments
 
 - [Overture Maps Foundation](https://overturemaps.org/) for providing high-quality, open geospatial data.
-- [DuckDB](https://duckdb.org/) for fast analytical queries with spatial support.
 - [AWS Open Data Registry](https://registry.opendata.aws/) for hosting the dataset.
+- [Apache SedonaDB](https://sedona.apache.org/sedonadb/) for the high-performance, single-node spatial query and analytics engine.
