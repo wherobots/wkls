@@ -1,4 +1,5 @@
 import pytest
+
 import wkls
 
 
@@ -103,7 +104,7 @@ def test_subtypes_chaining_error():
 def test_too_many_chained_attributes():
     """Test that too many chained attributes raise an error."""
     with pytest.raises(ValueError) as exc_info:
-        wkls.us.ca.sanfrancisco.somethingelse
+        wkls.us.ca.sanfrancisco.somethingelse  # noqa: B018
     assert "Too many chained attributes (max = 3)" in str(exc_info.value)
 
 

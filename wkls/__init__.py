@@ -1,4 +1,5 @@
 import sys
+
 from .core import Wkl
 
 # Create the main instance
