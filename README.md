@@ -1,12 +1,28 @@
 # `wkls`: Well-Known Locations
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![PyPI version](https://img.shields.io/pypi/v/wkls.svg)](https://pypi.org/project/wkls/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/wkls.svg)](https://pypi.org/project/wkls/)
+[![Python versions](https://img.shields.io/pypi/pyversions/wkls.svg)](https://pypi.org/project/wkls/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![CI](https://github.com/wherobots/wkls/actions/workflows/run_tests.yaml/badge.svg)](https://github.com/wherobots/wkls/actions/workflows/run_tests.yaml)
 
 `wkls` makes it easy to find global administrative boundaries — from countries to cities — using readable, chainable Python syntax.
 
-It fetches geometries from [Overture Maps Foundation](https://overturemaps.org/) GeoParquet data (version 2025-12.17.0) hosted on Registry of Open Data on AWS.
+## Features
 
-You can instantly get geometries in formats like Well-known Text (WKT), Well-known Binaries (WKB), HexWKB, GeoJSON, and SVG:
+- **Chainable Python syntax** — Access locations naturally: `wkls.us.ca.sanfrancisco`
+- **Global coverage** — 219 countries, 53 dependencies, and thousands of regions and cities
+- **Multiple output formats** — WKT and WKB (with GeoJSON, HexWKB, SVG coming soon)
+- **Zero configuration** — Works out of the box with no API keys or setup required
+- **Powered by Overture Maps** — High-quality, open geospatial data from the [Overture Maps Foundation](https://overturemaps.org/)
+- **Fast metadata lookups** — Local metadata table for instant resolution; geometry fetched on-demand from S3
+- **Type hints included** — Full type annotations for IDE autocompletion and type checking
+
+## Overview
+
+`wkls` fetches geometries from [Overture Maps Foundation](https://overturemaps.org/) GeoParquet data (version 2025-12.17.0) hosted on the Registry of Open Data on AWS.
+
+You can instantly get geometries in formats like Well-known Text (WKT) and Well-known Binary (WKB):
 
 ```python
 import wkls
@@ -187,7 +203,7 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENCE) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 `wkls` includes, references, and leverages data from the "Divisions" theme of [Overture](https://overturemaps.org), from Overture Maps Foundation:
 
  * © OpenStreetMap contributors. Available under the [Open Database License](https://www.openstreetmap.org/copyright).
