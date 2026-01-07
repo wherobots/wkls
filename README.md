@@ -185,17 +185,20 @@ Your chained attributes — up to 3 levels — are parsed in this order:
 
 This resolves to a Pandas DataFrame containing one or more rows from the in-memory wkls metadata table. At this stage, no geometry is loaded yet — only metadata (like id, name, region, subtype, etc.).
 
-### 2.  Geometry lookup using DuckDB
+### 2.  Geometry lookup using SedonaDB
 
 The geometry lookup is triggered only when you call one of the geometry methods:
 
 - `.wkt()`
 - `.wkb()`
+
+Support for the following formats will come in future versions once implemented in SedonaDB:
+
 - `.hexwkb()`
 - `.geojson()`
 - `.svg()`
 
-At that point, `wkls` uses the previously resolved **GERS ID** to query the Overture **division_area** GeoParquet directly from S3.
+At that point, `wkls` uses the previously resolved **GERS ID** to query the Overture **division_area** GeoParquet directly from S3 via [Apache SedonaDB](https://sedona.apache.org/latest/).
 
 The current Overture Maps dataset version can be checked with `wkls.overture_version()`.
 
