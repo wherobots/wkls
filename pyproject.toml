@@ -44,4 +44,4 @@ dev = [
 ]
 
 [tool.setuptools.package-data]
-wkls = ["data/overture.zstd18.parquet"]
+wkls = ["data/overture.zstd18.parquet", "py.typed"]
