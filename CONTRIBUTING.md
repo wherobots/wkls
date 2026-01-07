@@ -40,7 +40,7 @@ We welcome contributions! Whether you're fixing bugs, adding features, improving
 
 ## Development Notes
 
-- The library uses **DuckDB** for spatial operations and **pandas** for data handling
+- The library uses **Apache SedonaDB** for spatial operations and **pandas** for data handling
 - Geometry data comes from **Overture Maps Foundation** via S3
 - Tests require internet access to fetch data from AWS Open Data Registry
 
