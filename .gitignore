@@ -5,9 +5,26 @@ build/
 dist/
 wheels/
 *.egg-info
+*.egg
 
 # Virtual environments
 .venv
+venv/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Linting
+.ruff_cache/
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
 
 # MacOS
 .DS_Store
