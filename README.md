@@ -37,7 +37,8 @@ print(wkls.us.ca.sanfrancisco.wkt())
 pip install wkls
 ```
 
-> [!NOTE] This command also installs Apache SedonaDB, which is used internally by WKLs.
+> [!NOTE]
+> This command also installs Apache SedonaDB, which is used internally by WKLs.
 
 ## Quick Start
 
@@ -152,7 +153,8 @@ print(wkls.overture_version())
 "2025-12.17.0"
 ```
 
-> [!NOTE] The `overture_version()` method is only available at the root level, not on chained objects like `wkls.us.overture_version()`.
+> [!NOTE]
+> The `overture_version()` method is only available at the root level, not on chained objects like `wkls.us.overture_version()`.
 
 ### Debug mode
 
