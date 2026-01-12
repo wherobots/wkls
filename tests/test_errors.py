@@ -160,6 +160,22 @@ def test_chainable_dataframe_error_propagation():
     assert "regions() requires exactly one level of chaining" in str(exc_info.value)
 
 
+def test_version_attribute():
+    """Test that __version__ is accessible and returns a string."""
+    assert hasattr(wkls, "__version__")
+    assert isinstance(wkls.__version__, str)
+    assert len(wkls.__version__) > 0
+
+
+def test_dunder_attributes_raise_attribute_error():
+    """Test that unset dunder attributes raise AttributeError, not empty DataFrames."""
+    with pytest.raises(AttributeError):
+        wkls.__nonexistent__  # noqa: B018
+
+    with pytest.raises(AttributeError):
+        wkls._private_attr  # noqa: B018
+
+
 if __name__ == "__main__":
     test_empty_chain_error()
     test_countries_chaining_error()
