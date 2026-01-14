@@ -125,7 +125,7 @@ By default, geometry methods like `.wkt()` will use the first matching row.
 
 ### Helper methods
 
-The following methods return Pandas DataFrames for easy exploration:
+The following helper methods return DataFrames for easy exploration. Note that these are **methods that query the dataset**, not namespaces for chaining—use them to list available data, then access specific locations via chainable syntax (e.g., `wkls.la` for Laos, not `wkls.countries()["LA"]`):
 
 | Method                  | Description                         |
 |-------------------------|-------------------------------------|

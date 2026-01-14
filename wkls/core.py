@@ -373,6 +373,14 @@ class ChainableDataFrame(sedonadb.dataframe.DataFrame):
         wkl = Wkl(self._chain)
         return wkl.subtypes()
 
+    def __len__(self) -> int:
+        """Return the number of rows in the DataFrame.
+
+        Returns:
+            Number of rows in the DataFrame.
+        """
+        return self.count()
+
     @property
     def _constructor(self) -> type[ChainableDataFrame]:
         """Return the constructor for DataFrame operations.
@@ -625,11 +633,11 @@ class Wkl:
         # )
         raise NotImplementedError("ST_AsSVG() isn't implemented yet")
 
-    def dependencies(self) -> sedonadb.dataframe.DataFrame:
+    def dependencies(self) -> ChainableDataFrame:
         """Get all dependencies (territories, overseas regions, etc.).
 
         Returns:
-            DataFrame containing all dependency records with id, country,
+            ChainableDataFrame containing all dependency records with id, country,
             subtype, name_primary, and name_en columns.
 
         Raises:
@@ -645,13 +653,13 @@ class Wkl:
             FROM wkls
             WHERE subtype = 'dependency'
         """
-        return sedona.sql(query)
+        return ChainableDataFrame(sedona.sql(query), [])
 
-    def countries(self) -> sedonadb.dataframe.DataFrame:
+    def countries(self) -> ChainableDataFrame:
         """Get all countries.
 
         Returns:
-            DataFrame containing all country records with id, country,
+            ChainableDataFrame containing all country records with id, country,
             subtype, name_primary, and name_en columns.
 
         Raises:
@@ -667,15 +675,15 @@ class Wkl:
             FROM wkls
             WHERE subtype = 'country'
         """
-        return sedona.sql(query)
+        return ChainableDataFrame(sedona.sql(query), [])
 
-    def regions(self) -> sedonadb.dataframe.DataFrame:
+    def regions(self) -> ChainableDataFrame:
         """Get regions for the current country.
 
         Must be called on a single-level chain (e.g., `wkls.us.regions()`).
 
         Returns:
-            DataFrame containing all region records for the country.
+            ChainableDataFrame containing all region records for the country.
 
         Raises:
             ValueError: If called at wrong chain level or country has no regions.
@@ -693,20 +701,22 @@ class Wkl:
                     WHERE country = '{country}'
                         AND subtype = 'region'
                 """
-                return sedona.sql(query.format(country=sqlescape(country_iso)))
+                return ChainableDataFrame(
+                    sedona.sql(query.format(country=sqlescape(country_iso))), self.chain
+                )
             else:
                 raise ValueError(
                     f"The country '{country_iso}' does not have regions in the dataset. Please directly call wkls.{str.lower(country_iso)}.counties() or wkls.{str.lower(country_iso)}.cities() to access its counties or cities."
                 )
 
-    def counties(self) -> sedonadb.dataframe.DataFrame:
+    def counties(self) -> ChainableDataFrame:
         """Get counties for the current region.
 
         Must be called on a two-level chain (e.g., `wkls.us.ca.counties()`),
         or single-level for countries without regions.
 
         Returns:
-            DataFrame containing all county records for the region.
+            ChainableDataFrame containing all county records for the region.
 
         Raises:
             ValueError: If called at wrong chain level.
@@ -727,7 +737,9 @@ class Wkl:
                     WHERE country = '{country}'
                       AND subtype = 'county'
                 """
-                return sedona.sql(query.format(country=sqlescape(country_iso)))
+                return ChainableDataFrame(
+                    sedona.sql(query.format(country=sqlescape(country_iso))), self.chain
+                )
         if len(self.chain) == 2:
             region_iso = country_iso + "-" + self.chain[1].upper()
             query = """
@@ -736,20 +748,23 @@ class Wkl:
                   AND region = '{region}'
                   AND subtype = 'county'
             """
-            return sedona.sql(
-                query.format(
-                    country=sqlescape(country_iso), region=sqlescape(region_iso)
-                )
+            return ChainableDataFrame(
+                sedona.sql(
+                    query.format(
+                        country=sqlescape(country_iso), region=sqlescape(region_iso)
+                    )
+                ),
+                self.chain,
             )
 
-    def cities(self) -> sedonadb.dataframe.DataFrame:
+    def cities(self) -> ChainableDataFrame:
         """Get cities for the current region.
 
         Must be called on a two-level chain (e.g., `wkls.us.ca.cities()`),
         or single-level for countries without regions.
 
         Returns:
-            DataFrame containing all city records for the region.
+            ChainableDataFrame containing all city records for the region.
 
         Raises:
             ValueError: If called at wrong chain level.
@@ -770,7 +785,9 @@ class Wkl:
                     WHERE country = '{country}'
                       AND subtype IN ('locality', 'localadmin')
                 """
-                return sedona.sql(query.format(country=sqlescape(country_iso)))
+                return ChainableDataFrame(
+                    sedona.sql(query.format(country=sqlescape(country_iso))), self.chain
+                )
 
         if len(self.chain) == 3:
             raise ValueError(
@@ -789,17 +806,20 @@ class Wkl:
                   AND region = '{region}'
                   AND subtype IN ('locality', 'localadmin')
             """
-            return sedona.sql(
-                query.format(
-                    country=sqlescape(country_iso), region=sqlescape(region_iso)
-                )
+            return ChainableDataFrame(
+                sedona.sql(
+                    query.format(
+                        country=sqlescape(country_iso), region=sqlescape(region_iso)
+                    )
+                ),
+                self.chain,
             )
 
-    def subtypes(self) -> sedonadb.dataframe.DataFrame:
+    def subtypes(self) -> ChainableDataFrame:
         """Get all distinct division subtypes in the dataset.
 
         Returns:
-            DataFrame containing all unique subtype values.
+            ChainableDataFrame containing all unique subtype values.
 
         Raises:
             ValueError: If called on a chained object instead of root.
@@ -810,4 +830,4 @@ class Wkl:
             )
 
         query = """SELECT DISTINCT subtype FROM wkls"""
-        return sedona.sql(query)
+        return ChainableDataFrame(sedona.sql(query), [])
