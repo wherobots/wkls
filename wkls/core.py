@@ -448,8 +448,15 @@ class Wkl:
             ChainableDataFrame if chain is complete, otherwise Wkl.
 
         Raises:
+            AttributeError: For private/dunder attributes.
             ValueError: If chain exceeds maximum depth of 3.
         """
+        # Don't intercept private/dunder attributes - raise AttributeError
+        if attr.startswith("_"):
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+            )
+
         new_wkl = Wkl(self.chain + [attr.lower()])
         # Validate chain length immediately
         if len(new_wkl.chain) > 3:
