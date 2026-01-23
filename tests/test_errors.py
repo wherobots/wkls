@@ -151,6 +151,72 @@ def test_geometry_methods_on_empty_results():
     assert "No result found for: us.ca.nonexistentcity" in str(exc_info.value)
 
 
+def test_did_you_mean_suggestions():
+    """Test that typos in location names provide helpful suggestions."""
+    # Typo: "sanfran" instead of "sanfrancisco"
+    with pytest.raises(ValueError) as exc_info:
+        wkls.us.ca.sanfran.wkt()
+    error_msg = str(exc_info.value)
+    assert "No result found for: us.ca.sanfran" in error_msg
+    assert "Did you mean:" in error_msg
+    assert "sanfrancisco" in error_msg
+
+
+def test_did_you_mean_partial_match():
+    """Test suggestions work for partial name matches."""
+    # "losangel" should suggest "losangeles"
+    with pytest.raises(ValueError) as exc_info:
+        wkls.us.ca.losangel.wkt()
+    error_msg = str(exc_info.value)
+    assert "Did you mean:" in error_msg
+    assert "losangeles" in error_msg
+
+
+def test_no_suggestions_for_completely_wrong_name():
+    """Test that completely wrong names don't show irrelevant suggestions."""
+    with pytest.raises(ValueError) as exc_info:
+        wkls.us.ca.xyzabc123.wkt()
+    error_msg = str(exc_info.value)
+    assert "No result found for: us.ca.xyzabc123" in error_msg
+    # Should either have no suggestions or the message shouldn't include irrelevant ones
+    # (cutoff of 0.5 should filter out completely unrelated names)
+
+
+def test_did_you_mean_country_without_region():
+    """Test suggestions for countries that don't have regions (2-level chain)."""
+    # Falkland Islands (FK) has no regions, so second level is city directly
+    # Typo: "stoney" instead of "stoneyridge"
+    with pytest.raises(ValueError) as exc_info:
+        wkls.fk.stoney.wkt()
+    error_msg = str(exc_info.value)
+    assert "No result found for: fk.stoney" in error_msg
+    assert "Did you mean:" in error_msg
+    assert "stoneyridge" in error_msg
+
+
+def test_did_you_mean_new_york():
+    """Test suggestions for New York typo at city level."""
+    # Typo: "newyok" (missing 'r') instead of "newyork"
+    with pytest.raises(ValueError) as exc_info:
+        wkls.us.ny.newyok.wkt()
+    error_msg = str(exc_info.value)
+    assert "No result found for: us.ny.newyok" in error_msg
+    assert "Did you mean:" in error_msg
+    # Should suggest newyork or newyorkcity
+    assert "newyork" in error_msg.lower()
+
+
+def test_did_you_mean_no_suggestions_for_region_codes():
+    """Test that region code lookups don't provide fuzzy suggestions."""
+    # Region codes (US-CA, US-NY) are exact matches, no fuzzy matching
+    # When user types wkls.us.xyz, it's treated as region code, not city
+    with pytest.raises(ValueError) as exc_info:
+        wkls.us.xyz.wkt()
+    error_msg = str(exc_info.value)
+    assert "No result found for: us.xyz" in error_msg
+    # Region codes are exact - no "Did you mean" for these
+
+
 def test_chainable_dataframe_error_propagation():
     """Test that ChainableDataFrame properly propagates errors."""
     # Get a valid DataFrame first
@@ -194,5 +260,11 @@ if __name__ == "__main__":
     test_too_many_chained_attributes()
     test_nonexistent_location_errors()
     test_geometry_methods_on_empty_results()
+    test_did_you_mean_suggestions()
+    test_did_you_mean_partial_match()
+    test_no_suggestions_for_completely_wrong_name()
+    test_did_you_mean_country_without_region()
+    test_did_you_mean_new_york()
+    test_did_you_mean_no_suggestions_for_region_codes()
     test_chainable_dataframe_error_propagation()
     print("All error handling tests passed!")

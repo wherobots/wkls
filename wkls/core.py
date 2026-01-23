@@ -15,6 +15,7 @@ Example usage:
 
 from __future__ import annotations
 
+import difflib
 import importlib.resources
 import os
 from typing import Any, Callable
@@ -76,6 +77,21 @@ COUNTRY_REGION_CHECK_QUERY = """
     WHERE country = '{country}'
     AND subtype != 'country'
     AND region IS NULL
+"""
+
+SUGGESTION_QUERY_WITH_REGION = """
+    SELECT DISTINCT REPLACE(LOWER(COALESCE(name_en, name_primary)), ' ', '') as name
+    FROM wkls
+    WHERE country = '{country}'
+      AND region = '{region}'
+      AND subtype IN ('county', 'locality', 'localadmin')
+"""
+
+SUGGESTION_QUERY_WITHOUT_REGION = """
+    SELECT DISTINCT REPLACE(LOWER(COALESCE(name_en, name_primary)), ' ', '') as name
+    FROM wkls
+    WHERE country = '{country}'
+      AND subtype IN ('county', 'locality', 'localadmin')
 """
 
 
@@ -437,6 +453,38 @@ class Wkl:
 
         return sedona.sql(query.format(**{k: sqlescape(v) for k, v in params.items()}))
 
+    def _get_suggestions(self, failed_name: str, n: int = 3) -> list[str]:
+        """Get similar location names for "did you mean" suggestions.
+
+        Args:
+            failed_name: The name that wasn't found.
+            n: Maximum number of suggestions to return.
+
+        Returns:
+            List of similar names, or empty list if none found.
+        """
+        if len(self.chain) < 2:
+            return []  # No suggestions for country-level
+
+        country_iso = self.chain[0].upper()
+        params: dict[str, str] = {"country": country_iso}
+
+        if len(self.chain) == 2 and self._has_region:
+            return []  # Region codes are fixed, no fuzzy match
+
+        if len(self.chain) == 2:
+            query = SUGGESTION_QUERY_WITHOUT_REGION
+        else:
+            query = SUGGESTION_QUERY_WITH_REGION
+            params["region"] = country_iso + "-" + self.chain[1].upper()
+
+        result = sedona.sql(query.format(**{k: sqlescape(v) for k, v in params.items()}))
+        all_names = [row["name"] for row in result.to_pandas().to_dict("records")]
+
+        return difflib.get_close_matches(
+            failed_name.lower().replace(" ", ""), all_names, n=n, cutoff=0.5
+        )
+
     def _get_geom_expr(self, expr: str) -> Any:
         """Retrieve geometry using a SQL expression.
 
@@ -451,7 +499,14 @@ class Wkl:
         """
         df = self.resolve()
         if df.count() == 0:
-            raise ValueError(f"No result found for: {'.'.join(self.chain)}")
+            chain_str = ".".join(self.chain)
+            failed_name = self.chain[-1]
+            suggestions = self._get_suggestions(failed_name)
+            if suggestions:
+                hint = f" Did you mean: {', '.join(suggestions)}?"
+            else:
+                hint = ""
+            raise ValueError(f"No result found for: {chain_str}.{hint}")
 
         geom_id = df.to_pandas().iloc[0]["id"]
         query = f"""
