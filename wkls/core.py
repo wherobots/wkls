@@ -107,6 +107,9 @@ def _initialize_table() -> sedonadb.SedonaContext:
     """
     sedona = sedonadb.connect()
 
+    # Enable interactive mode for auto-display
+    sedona.options.interactive = True
+
     # Monkey-patch `.sql()` for debug mode.
     sedona_sql = sedona.sql
     sedona.sql = lambda q: _log_and_query(sedona_sql, q)
