@@ -149,10 +149,21 @@ def sqlescape(v: str) -> str:
 
 
 # Methods that ChainableDataFrame delegates to Wkl
-_WKL_DELEGATED_METHODS = frozenset({
-    "wkt", "wkb", "hexwkb", "geojson", "svg",
-    "dependencies", "countries", "regions", "counties", "cities", "subtypes",
-})
+_WKL_DELEGATED_METHODS = frozenset(
+    {
+        "wkt",
+        "wkb",
+        "hexwkb",
+        "geojson",
+        "svg",
+        "dependencies",
+        "countries",
+        "regions",
+        "counties",
+        "cities",
+        "subtypes",
+    }
+)
 
 
 class ChainableDataFrame(sedonadb.dataframe.DataFrame):
@@ -636,9 +647,7 @@ class Wkl:
               AND subtype IN {subtype_filter}
         """
         return sedona.sql(
-            query.format(
-                country=sqlescape(country_iso), region=sqlescape(region_iso)
-            )
+            query.format(country=sqlescape(country_iso), region=sqlescape(region_iso))
         )
 
     def counties(self) -> sedonadb.dataframe.DataFrame:
