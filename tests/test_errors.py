@@ -59,7 +59,7 @@ def test_counties_chaining_errors():
     # counties() on root should fail
     with pytest.raises(ValueError) as exc_info:
         wkls.counties()
-    assert "counties() requires exactly two levels of chaining" in str(exc_info.value)
+    assert "counties() requires exactly one or two levels of chaining" in str(exc_info.value)
     assert "wkls.country.region.counties()" in str(exc_info.value)
 
     # counties() on country only should fail
@@ -71,7 +71,7 @@ def test_counties_chaining_errors():
     # counties() on country.region.city should fail
     with pytest.raises(ValueError) as exc_info:
         wkls.us.ca.sanfrancisco.counties()
-    assert "counties() requires exactly two levels of chaining" in str(exc_info.value)
+    assert "counties() requires exactly one or two levels of chaining" in str(exc_info.value)
 
 
 def test_cities_chaining_errors():
@@ -79,7 +79,7 @@ def test_cities_chaining_errors():
     # cities() on root should fail
     with pytest.raises(ValueError) as exc_info:
         wkls.cities()
-    assert "cities() requires exactly two levels of chaining" in str(exc_info.value)
+    assert "cities() requires exactly one or two levels of chaining" in str(exc_info.value)
     assert "wkls.country.region.cities()" in str(exc_info.value)
 
     # cities() on country only should fail
@@ -90,7 +90,7 @@ def test_cities_chaining_errors():
     # cities() on country.region.city should fail
     with pytest.raises(ValueError) as exc_info:
         wkls.us.ca.sanfrancisco.cities()
-    assert "cities() cannot be called on a specific city" in str(exc_info.value)
+    assert "cities() requires exactly one or two levels of chaining" in str(exc_info.value)
 
 
 def test_subtypes_chaining_error():
