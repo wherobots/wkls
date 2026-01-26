@@ -14,6 +14,7 @@ def test_access():
 
     assert wkls.countries().count() == 219
     assert wkls.us.regions().count() == 51
+    assert wkls.IN.regions().count() == 37
     assert wkls["IN"]["MH"].counties().count() == 36
     assert wkls["IN"]["MH"].cities().count() == 329
 

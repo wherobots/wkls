@@ -323,8 +323,8 @@ class Wkl:
                 df_check = sedona.sql(
                     queries.COUNTRY_HAS_REGIONS.format(country=sqlescape(country_iso))
                 )
-                # If the query returns any rows, it means it has no regions
-                _country_has_region_cache[country_iso] = df_check.count() == 0
+                # Country has regions if there are any subtype='region' entries
+                _country_has_region_cache[country_iso] = df_check.count() > 0
             self._has_region = _country_has_region_cache[country_iso]
         self.chain: list[str] = chain or []
 
@@ -684,8 +684,8 @@ class Wkl:
         if not self._has_region:
             raise ValueError(
                 f"The country '{country_iso}' does not have regions in the dataset. "
-                f"Please directly call wkls.{country_iso.lower()}.counties() or "
-                f"wkls.{country_iso.lower()}.cities() to access its counties or cities."
+                f"Please directly call wkls['{country_iso.lower()}'].counties() or "
+                f"wkls['{country_iso.lower()}'].cities() to access its counties or cities."
             )
 
         query = """
@@ -722,7 +722,7 @@ class Wkl:
             if self._has_region:
                 raise ValueError(
                     f"{method_name}() cannot be called on a country alone. "
-                    f"Use wkls.country.region.{method_name}() to get {method_name} for a region."
+                    f"Use wkls['{country_iso.lower()}'].region.{method_name}() to get {method_name} for a region."
                 )
             query = f"""
                 SELECT * FROM wkls

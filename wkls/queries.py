@@ -53,8 +53,8 @@ CITY_NO_REGION = """
 COUNTRY_HAS_REGIONS = """
     SELECT * FROM wkls
     WHERE country = '{country}'
-      AND subtype != 'country'
-      AND region IS NULL
+      AND subtype = 'region'
+      LIMIT 1
 """
 
 REGIONS_LIST = """
