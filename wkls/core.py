@@ -422,7 +422,7 @@ class Wkl:
         """
         if not self.chain:
             raise ValueError(
-                "No attributes in the chain. Use wkls.country or wkls.country.region, etc."
+                "No attributes in the chain. Use wkls.<country> or wkls.<country>.<region>, etc."
             )
 
         params: dict[str, str] = {}
@@ -676,7 +676,7 @@ class Wkl:
         if not self.chain or len(self.chain) > 1:
             raise ValueError(
                 "regions() requires exactly one level of chaining. "
-                "Use wkls.country.regions() to get regions for a country."
+                "Use wkls.<country>.regions() to get regions for a country."
             )
 
         country_iso = self.chain[0].upper()
@@ -713,7 +713,7 @@ class Wkl:
         if not self.chain or len(self.chain) > 2:
             raise ValueError(
                 f"{method_name}() requires exactly one or two levels of chaining. "
-                f"Use wkls.country.region.{method_name}() to get {method_name} for a region."
+                f"Use wkls.<country>.<region>.{method_name}() to get {method_name} for a region."
             )
 
         country_iso = self.chain[0].upper()
@@ -722,7 +722,7 @@ class Wkl:
             if self._has_region:
                 raise ValueError(
                     f"{method_name}() cannot be called on a country alone. "
-                    f"Use wkls['{country_iso.lower()}'].region.{method_name}() to get {method_name} for a region."
+                    f"Use wkls.<country>.<region>.{method_name}() to get {method_name} for a region."
                 )
             query = f"""
                 SELECT * FROM wkls

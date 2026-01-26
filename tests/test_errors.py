@@ -21,7 +21,7 @@ def test_empty_chain_error():
     with pytest.raises(ValueError) as exc_info:
         wkl.resolve()
     assert "No attributes in the chain" in str(exc_info.value)
-    assert "wkls.country" in str(exc_info.value)
+    assert "wkls.<country>" in str(exc_info.value)
 
 
 def test_dependencies_chaining_error():
@@ -46,7 +46,7 @@ def test_regions_chaining_errors():
     with pytest.raises(ValueError) as exc_info:
         wkls.regions()
     assert "regions() requires exactly one level of chaining" in str(exc_info.value)
-    assert "wkls.country.regions()" in str(exc_info.value)
+    assert "wkls.<country>.regions()" in str(exc_info.value)
 
     # regions() on country.region should fail
     with pytest.raises(ValueError) as exc_info:
@@ -62,13 +62,13 @@ def test_counties_chaining_errors():
     assert "counties() requires exactly one or two levels of chaining" in str(
         exc_info.value
     )
-    assert "wkls.country.region.counties()" in str(exc_info.value)
+    assert "wkls.<country>.<region>.counties()" in str(exc_info.value)
 
     # counties() on country only should fail
     with pytest.raises(ValueError) as exc_info:
         wkls.us.counties()
     assert "counties() cannot be called on a country alone" in str(exc_info.value)
-    assert "wkls.country.region.counties()" in str(exc_info.value)
+    assert "wkls.<country>.<region>.counties()" in str(exc_info.value)
 
     # counties() on country.region.city should fail
     with pytest.raises(ValueError) as exc_info:
@@ -86,7 +86,7 @@ def test_cities_chaining_errors():
     assert "cities() requires exactly one or two levels of chaining" in str(
         exc_info.value
     )
-    assert "wkls.country.region.cities()" in str(exc_info.value)
+    assert "wkls.<country>.<region>.cities()" in str(exc_info.value)
 
     # cities() on country only should fail
     with pytest.raises(ValueError) as exc_info:
