@@ -272,6 +272,17 @@ def test_suggestions_in_repr():
     assert "wkls.us.ca['%sanfran%']" in repr_str
 
 
+def test_suggestions_in_repr_bracket_access():
+    """Test that suggestions appear when using bracket access."""
+    # Access a non-existent country using bracket syntax
+    result = wkls["uss"]
+    repr_str = repr(result)
+    assert "No results found for: uss" in repr_str
+    assert "Did you mean:" in repr_str
+    assert "us" in repr_str
+    assert "wkls['%uss%']" in repr_str
+
+
 def test_chainable_dataframe_error_propagation():
     """Test that ChainableDataFrame properly propagates errors."""
     # Get a valid DataFrame first

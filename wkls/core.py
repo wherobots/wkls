@@ -236,20 +236,31 @@ class ChainableDataFrame(sedonadb.dataframe.DataFrame):
         Raises:
             ValueError: If chain exceeds maximum depth of 3.
         """
-        # If it's a regular pandas indexing operation, use parent class
-        if isinstance(key, (str, list, slice)) and not (
-            isinstance(key, str) and "%" in key
-        ):
+        # If we have a chain, continue chaining (location access mode)
+        if self._chain:
+            new_wkl = Wkl(self._chain + [key.lower()])
+            # Validate chain length immediately
+            if len(new_wkl.chain) > 3 and "%" not in str(key):
+                raise ValueError("Too many chained attributes (max = 3)")
+            if "%" in str(key):
+                return new_wkl.resolve()
+            # Return ChainableDataFrame to get hint logic in __repr__
+            df = new_wkl.resolve()
+            return ChainableDataFrame(df, new_wkl.chain)
+
+        # No chain - this is pandas-style indexing or starting a new chain
+        # If it contains %, it's a search pattern
+        if isinstance(key, str) and "%" in key:
+            new_wkl = Wkl([key.lower()])
+            return new_wkl.resolve()
+
+        # Regular pandas indexing operation - use parent class
+        if isinstance(key, (list, slice)):
             return super().__getitem__(key)
 
-        # Otherwise, handle chaining with search patterns
-        new_wkl = Wkl(self._chain + [key.lower()])
-        # Validate chain length immediately
-        if len(new_wkl.chain) > 3 and "%" not in str(key):
-            raise ValueError("Too many chained attributes (max = 3)")
-        if "%" in str(key):
-            return new_wkl.resolve()
-        return new_wkl
+        # String key without chain - this shouldn't happen on ChainableDataFrame
+        # but handle it as pandas indexing for safety
+        return super().__getitem__(key)
 
     @property
     def _constructor(self) -> type[ChainableDataFrame]:
@@ -398,7 +409,9 @@ class Wkl:
         # If this looks like a search pattern (contains %), return DataFrame directly
         if "%" in key:
             return new_wkl.resolve()
-        return new_wkl
+        # Return ChainableDataFrame to get hint logic in __repr__
+        df = new_wkl.resolve()
+        return ChainableDataFrame(df, new_wkl.chain)
 
     def __repr__(self) -> str:
         """Return string representation of the resolved DataFrame.
