@@ -192,7 +192,7 @@ class ChainableDataFrame(sedonadb.dataframe.DataFrame):
             AttributeError: For internal attributes or root-only methods.
             ValueError: If chain exceeds maximum depth of 3.
         """
-        # Avoid infinite recursion for pandas internal attributes
+        # Avoid infinite recursion for internal attributes
         if attr.startswith("_") or attr in ["_chain"]:
             raise AttributeError(
                 f"'{self.__class__.__name__}' object has no attribute '{attr}'"
@@ -224,7 +224,7 @@ class ChainableDataFrame(sedonadb.dataframe.DataFrame):
     ) -> ChainableDataFrame | sedonadb.dataframe.DataFrame:
         """Handle bracket access for location chaining or DataFrame indexing.
 
-        Supports both pandas-style indexing and location chaining with
+        Supports both DataFrame-style indexing and location chaining with
         search patterns (using % wildcards).
 
         Args:
@@ -248,18 +248,18 @@ class ChainableDataFrame(sedonadb.dataframe.DataFrame):
             df = new_wkl.resolve()
             return ChainableDataFrame(df, new_wkl.chain)
 
-        # No chain - this is pandas-style indexing or starting a new chain
+        # No chain - this is DataFrame-style indexing or starting a new chain
         # If it contains %, it's a search pattern
         if isinstance(key, str) and "%" in key:
             new_wkl = Wkl([key.lower()])
             return new_wkl.resolve()
 
-        # Regular pandas indexing operation - use parent class
+        # Regular DataFrame indexing operation - use parent class
         if isinstance(key, (list, slice)):
             return super().__getitem__(key)
 
         # String key without chain - this shouldn't happen on ChainableDataFrame
-        # but handle it as pandas indexing for safety
+        # but handle it as DataFrame indexing for safety
         return super().__getitem__(key)
 
     @property
@@ -526,17 +526,25 @@ class Wkl:
 
         result = sedona.sql(query)
 
-        df = result.to_pandas()
-        if df.empty:
+        table = result.to_arrow_table()
+        if table.num_rows == 0:
             return []
 
         # For city-level queries, filter by max_distance
         if use_distance_filter:
-            filtered = df[df["distance"] <= max_distance].head(n)
-            return filtered["chainable_name"].tolist()
+            distances = table.column("distance")
+            names = table.column("chainable_name")
+            return [
+                names[i].as_py()
+                for i in range(table.num_rows)
+                if distances[i].as_py() <= max_distance
+            ][:n]
 
         # For country/region prefix matches, just return the results
-        return df["chainable_name"].head(n).tolist()
+        return [
+            table.column("chainable_name")[i].as_py()
+            for i in range(min(table.num_rows, n))
+        ]
 
     def _get_geom_expr(self, expr: str) -> Any:
         """Retrieve geometry using a SQL expression.
@@ -556,7 +564,7 @@ class Wkl:
             hint = _build_error_hint(self.chain, suggestions)
             raise ValueError(hint.strip())
 
-        geom_id = df.to_pandas().iloc[0]["id"]
+        geom_id = df.head(1).to_arrow_table().column("id")[0].as_py()
         query = f"""
             SELECT {expr}
             FROM overture
@@ -565,7 +573,7 @@ class Wkl:
         result_df = sedona.sql(query)
         if result_df.count() == 0:
             raise ValueError(f"No geometry found for ID: {geom_id}")
-        return result_df.to_pandas().iloc[0, 0]
+        return result_df.head(1).to_arrow_table().column(0)[0].as_py()
 
     def wkt(self) -> str:
         """Get Well-Known Text (WKT) geometry for the first result.
