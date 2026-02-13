@@ -69,7 +69,7 @@ print(f"CA counties: {len(wkls.us.ca.counties())}")
 
 ## Handling namespace collisions
 
-Some region or locality names overlap with `pandas.DataFrame` attributes inherited by `ChainableDataFrame` (for example `wkls.us.ne` triggers the `.ne` “not equal” method rather than returning Nebraska). When a name collides with any DataFrame member or even Python keywords, use the already-supported dict-style access to force a lookup:
+Some region or locality names overlap with `sedonadb.dataframe.DataFrame` attributes inherited by `ChainableDataFrame` (for example `wkls.us.ne` triggers the `.ne` “not equal” method rather than returning Nebraska). When a name collides with any DataFrame member or even Python keywords, use the already-supported dict-style access to force a lookup:
 
 ```python
 wkls["us"]["ne"].wkt()                # Nebraska (avoids calling DataFrame.ne)
@@ -112,7 +112,7 @@ once support is implemented in SedonaDB:
 
 ### Example: Find the administrative boundary of San Francisco, California
 
-Chained expressions like `wkls.us.ca.sanfrancisco` return a WKL object. Internally, this holds a Pandas DataFrame containing one or more rows that match the given chain.
+Chained expressions like `wkls.us.ca.sanfrancisco` return a WKL object. Internally, this holds a SedonaDB DataFrame containing one or more rows that match the given chain.
 
 ```python
         id           country    region   subtype       name     
@@ -125,7 +125,7 @@ By default, geometry methods like `.wkt()` will use the first matching row.
 
 ### Helper methods
 
-The following methods return Pandas DataFrames for easy exploration:
+The following methods return SedonaDB DataFrames for easy exploration:
 
 | Method                  | Description                         |
 |-------------------------|-------------------------------------|
@@ -183,7 +183,7 @@ Your chained attributes — up to 3 levels — are parsed in this order:
 2. `region` → matched using region code suffix as specified by Overture (e.g. `"ca"` → `"US-CA"`)
 3. `place` → fuzzy-matched against names in subtypes: `county`, `locality`, or `neighborhood`
 
-This resolves to a Pandas DataFrame containing one or more rows from the in-memory wkls metadata table. At this stage, no geometry is loaded yet — only metadata (like id, name, region, subtype, etc.).
+This resolves to a SedonaDB DataFrame containing one or more rows from the in-memory wkls metadata table. At this stage, no geometry is loaded yet — only metadata (like id, name, region, subtype, etc.).
 
 ### 2.  Geometry lookup using SedonaDB
 

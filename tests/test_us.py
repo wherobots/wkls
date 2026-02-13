@@ -19,21 +19,27 @@ def test_access():
     assert wkls["IN"]["MH"].cities().count() == 329
 
     # Test San Francisco search returns DataFrame directly
-    san_francisco_results = wkls["us"]["ca"]["%San Francisco%"].to_pandas()
-    assert len(san_francisco_results) == 2, (
+    san_francisco_results = wkls["us"]["ca"]["%San Francisco%"].to_arrow_table()
+    assert san_francisco_results.num_rows == 2, (
         "San Francisco search should return exactly two results"
     )
-    assert "San Francisco" in san_francisco_results["name_primary"].str.cat(sep=" "), (
+    name_values = [
+        san_francisco_results.column("name_primary")[i].as_py()
+        for i in range(san_francisco_results.num_rows)
+    ]
+    assert any("San Francisco" in name for name in name_values), (
         "Results should contain San Francisco"
     )
 
     # Test subtypes
-    subtypes_df = wkls.subtypes().to_pandas()
+    subtypes_table = wkls.subtypes().to_arrow_table()
+    subtype_values = [
+        subtypes_table.column("subtype")[i].as_py()
+        for i in range(subtypes_table.num_rows)
+    ]
     expected_subtypes = ["country", "region", "county", "locality", "localadmin"]
     for subtype in expected_subtypes:
-        assert subtype in subtypes_df["subtype"].values, (
-            f"Subtype '{subtype}' should exist"
-        )
+        assert subtype in subtype_values, f"Subtype '{subtype}' should exist"
 
 
 def test_overture_version():

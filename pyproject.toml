@@ -21,7 +21,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "sedonadb[geopandas]>=0.2.0",
+    "sedonadb>=0.2.0",
+    "pyarrow>=14.0.0",
     "sqlescapy>=1.0.1",
 ]
 authors = [
