@@ -23,6 +23,7 @@ classifiers = [
 dependencies = [
     "sedonadb>=0.2.0",
     "pyarrow>=14.0.0",
+    "geoarrow-pyarrow>=0.2.0",
     "sqlescapy>=1.0.1",
 ]
 authors = [
