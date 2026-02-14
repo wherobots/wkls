@@ -18,6 +18,8 @@ from __future__ import annotations
 import importlib.resources
 import os
 import re
+import urllib.request
+import xml.etree.ElementTree as ET
 from typing import Any, Callable
 
 import sedonadb
@@ -25,11 +27,101 @@ import sqlescapy
 
 from . import data, queries
 
-__all__ = ["Wkl", "ChainableDataFrame", "OVERTURE_VERSION"]
+__all__ = ["Wkl", "ChainableDataFrame"]
 
-# Overture Maps dataset version
-OVERTURE_VERSION = "2025-12-17.0"
-OVERTURE_URI = f"s3://overturemaps-us-west-2/release/{OVERTURE_VERSION}/theme=divisions/type=division_area/"
+# S3 bucket URL for listing Overture Maps releases
+_S3_BUCKET_URL = "https://overturemaps-us-west-2.s3.amazonaws.com/"
+_S3_RELEASE_PREFIX = "release/"
+_S3_DIVISION_AREA_SUFFIX = "theme=divisions/type=division_area/"
+
+# Module-level state for the active Overture version
+_current_overture_version: str | None = None
+
+
+def _list_s3_releases() -> list[str]:
+    """List all available Overture Maps releases on S3.
+
+    Queries the public S3 bucket listing to discover available release
+    versions. The bucket is unauthenticated and returns XML with
+    CommonPrefixes for each release directory.
+
+    Returns:
+        Sorted list of version strings (e.g., ["2025-12-17.0", "2026-01-21.0"]).
+
+    Raises:
+        ConnectionError: If the S3 bucket listing request fails.
+    """
+    url = f"{_S3_BUCKET_URL}?list-type=2&prefix={_S3_RELEASE_PREFIX}&delimiter=/"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as response:
+            xml_data = response.read()
+    except (urllib.error.URLError, TimeoutError) as e:
+        raise ConnectionError(
+            f"Failed to list Overture Maps releases from S3: {e}\n"
+            "Check your network connection. Geometry lookups require "
+            "internet access to the Overture Maps S3 bucket."
+        ) from e
+
+    root = ET.fromstring(xml_data)
+    # XML namespace for S3 ListBucketResult
+    ns = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
+
+    versions = []
+    for prefix_elem in root.findall("s3:CommonPrefixes/s3:Prefix", ns):
+        prefix = prefix_elem.text or ""
+        # Extract version from "release/2025-12-17.0/"
+        version = prefix.removeprefix(_S3_RELEASE_PREFIX).rstrip("/")
+        if version:
+            versions.append(version)
+
+    return sorted(versions)
+
+
+def _resolve_overture_version() -> str:
+    """Resolve which Overture Maps version to use.
+
+    Priority:
+        1. ``WKLS_OVERTURE_VERSION`` environment variable
+        2. Auto-detect the latest release from S3
+
+    Returns:
+        Resolved version string.
+
+    Raises:
+        ValueError: If the env var specifies an unavailable version.
+        ConnectionError: If S3 listing fails.
+    """
+    env_version = os.environ.get("WKLS_OVERTURE_VERSION")
+    if env_version:
+        available = _list_s3_releases()
+        if env_version not in available:
+            raise ValueError(
+                f"Overture Maps version '{env_version}' is not available on S3.\n"
+                f"Available versions: {', '.join(available)}\n"
+                "Set WKLS_OVERTURE_VERSION to a valid version or remove it "
+                "to auto-detect the latest."
+            )
+        return env_version
+
+    available = _list_s3_releases()
+    if not available:
+        raise ConnectionError(
+            "No Overture Maps releases found on S3. "
+            "The S3 bucket may be temporarily unavailable."
+        )
+    return available[-1]
+
+
+def _overture_uri(version: str) -> str:
+    """Build the S3 URI for a given Overture Maps version.
+
+    Args:
+        version: Overture Maps release version string.
+
+    Returns:
+        Full S3 URI to the division_area GeoParquet data.
+    """
+    return f"s3://overturemaps-us-west-2/{_S3_RELEASE_PREFIX}{version}/{_S3_DIVISION_AREA_SUFFIX}"
 
 
 def _log_and_query(
@@ -53,11 +145,14 @@ def _initialize_table() -> sedonadb.SedonaContext:
     """Initialize the wkls table and Overture data views.
 
     Creates SedonaDB views for the local metadata table and remote
-    Overture Maps GeoParquet data.
+    Overture Maps GeoParquet data. Auto-detects the latest Overture
+    release unless overridden by the ``WKLS_OVERTURE_VERSION`` env var.
 
     Returns:
         Configured SedonaContext instance.
     """
+    global _current_overture_version
+
     sedona = sedonadb.connect()
 
     # Enable interactive mode for auto-display
@@ -71,8 +166,10 @@ def _initialize_table() -> sedonadb.SedonaContext:
     sedona.read_parquet(
         f"{importlib.resources.files(data)}/overture.zstd18.parquet"
     ).to_view("wkls")
+
+    _current_overture_version = _resolve_overture_version()
     sedona.read_parquet(
-        OVERTURE_URI,
+        _overture_uri(_current_overture_version),
         options={
             "aws.skip_signature": True,
             "aws.region": "us-west-2",
@@ -199,7 +296,7 @@ class ChainableDataFrame(sedonadb.dataframe.DataFrame):
             )
 
         # Block root-level only methods
-        if attr == "overture_version":
+        if attr in ("overture_version", "overture_releases", "configure"):
             raise AttributeError(
                 f"'{attr}' is only available at the root level. Use wkls.{attr}(), not on chained objects."
             )
@@ -355,7 +452,77 @@ class Wkl:
             raise ValueError(
                 "overture_version() is only available at the root level. Use wkls.overture_version(), not wkls.us.overture_version()."
             )
-        return OVERTURE_VERSION
+        return _current_overture_version
+
+    def overture_releases(self) -> list[str]:
+        """List all available Overture Maps releases on S3.
+
+        This method is only available at the root level
+        (``wkls.overture_releases()``), not on chained objects.
+
+        Returns:
+            Sorted list of available version strings.
+
+        Raises:
+            ValueError: If called on a chained object.
+            ConnectionError: If S3 listing fails.
+        """
+        if self.chain:
+            raise ValueError(
+                "overture_releases() is only available at the root level. "
+                "Use wkls.overture_releases(), not wkls.us.overture_releases()."
+            )
+        return _list_s3_releases()
+
+    def configure(self, overture_version: str) -> None:
+        """Configure the Overture Maps dataset version.
+
+        Validates the requested version against available S3 releases,
+        then re-creates the ``overture`` SedonaDB view pointing to the
+        new version's GeoParquet data.
+
+        This method is only available at the root level
+        (``wkls.configure(overture_version="...")``).
+
+        Args:
+            overture_version: Version string to use (e.g., ``"2025-12-17.0"``).
+
+        Raises:
+            ValueError: If called on a chained object or version is unavailable.
+            ConnectionError: If S3 listing fails.
+
+        Example:
+            >>> import wkls
+            >>> wkls.overture_releases()
+            ['2025-12-17.0', '2026-01-21.0']
+            >>> wkls.configure(overture_version="2025-12-17.0")
+            >>> wkls.overture_version()
+            '2025-12-17.0'
+        """
+        global _current_overture_version
+
+        if self.chain:
+            raise ValueError(
+                "configure() is only available at the root level. "
+                "Use wkls.configure(), not wkls.us.configure()."
+            )
+
+        available = _list_s3_releases()
+        if overture_version not in available:
+            raise ValueError(
+                f"Overture Maps version '{overture_version}' is not available on S3.\n"
+                f"Available versions: {', '.join(available)}\n"
+                "Use wkls.overture_releases() to list all available versions."
+            )
+
+        _current_overture_version = overture_version
+        sedona.read_parquet(
+            _overture_uri(overture_version),
+            options={
+                "aws.skip_signature": True,
+                "aws.region": "us-west-2",
+            },
+        ).to_view("overture", overwrite=True)
 
     def __getattr__(self, attr: str) -> ChainableDataFrame | Wkl:
         """Handle attribute access for location chaining.
