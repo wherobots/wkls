@@ -175,7 +175,7 @@ print(wkls.us.ca.sanfrancisco.wkt())
 
 `wkls` works in two stages:
 
-### 1. In-memory GERS ID resolution
+### 1. In-memory metadata resolution
 
 Your chained attributes — up to 3 levels — are parsed in this order:
 
@@ -183,7 +183,7 @@ Your chained attributes — up to 3 levels — are parsed in this order:
 2. `region` → matched using region code suffix as specified by Overture (e.g. `"ca"` → `"US-CA"`)
 3. `place` → fuzzy-matched against names in subtypes: `county`, `locality`, or `neighborhood`
 
-This resolves to a SedonaDB DataFrame containing one or more rows from the in-memory wkls metadata table. At this stage, no geometry is loaded yet — only metadata (like id, name, region, subtype, etc.).
+This resolves to a SedonaDB DataFrame containing one or more rows from the in-memory wkls metadata table. At this stage, no geometry is loaded yet — only metadata (like name, country, region, subtype, etc.).
 
 ### 2.  Geometry lookup using SedonaDB
 
@@ -198,7 +198,7 @@ Support for the following formats will come in future versions once implemented 
 - `.geojson()`
 - `.svg()`
 
-At that point, `wkls` uses the previously resolved **GERS ID** to query the Overture **division_area** GeoParquet directly from S3 via [Apache SedonaDB](https://sedona.apache.org/latest/).
+At that point, `wkls` uses the resolved attributes (country, region, subtype, and name) to query the Overture **division_area** GeoParquet directly from S3 via [Apache SedonaDB](https://sedona.apache.org/latest/). This attribute-based approach leverages Parquet predicate pushdown on low-cardinality columns for fast lookups.
 
 The current Overture Maps dataset version can be checked with `wkls.overture_version()`.
 
