@@ -550,15 +550,19 @@ class Wkl:
         """Retrieve geometry using a SQL expression.
 
         Resolves the location chain against the local metadata table, then
-        queries the remote Overture GeoParquet using name-based attributes
-        (country, region, subtype, name) rather than GERS IDs. This avoids
-        coupling to unstable IDs and leverages Parquet predicate pushdown
-        on low-cardinality columns for faster lookups.
+        queries the remote Overture GeoParquet using attribute-based filters
+        that leverage Parquet predicate pushdown on low-cardinality columns
+        (country, subtype, region, is_land) for fast row group pruning.
 
         For country/region/dependency subtypes, the combination of
-        country + region + subtype is unique, so no name matching is needed.
-        For city/county/localadmin subtypes, the name is included to
-        disambiguate between multiple entities in the same region.
+        country + region + subtype is unique, so no further disambiguation
+        is needed.
+
+        For city/county/localadmin subtypes, the final disambiguation uses
+        ``(id = '<gers_id>' OR names.primary = '<name>')``. This makes the
+        lookup resilient to either identifier changing across Overture
+        releases: if GERS IDs stabilize (as OMF intends), the ID match is
+        the fast path; if the ID drifts, the name still resolves correctly.
 
         Args:
             expr: SQL expression to apply to the geometry column.
@@ -576,6 +580,7 @@ class Wkl:
             raise ValueError(hint.strip())
 
         row = df.head(1).to_arrow_table()
+        gers_id = row.column("id")[0].as_py()
         country = row.column("country")[0].as_py()
         region = row.column("region")[0].as_py()
         subtype = row.column("subtype")[0].as_py()
@@ -583,7 +588,7 @@ class Wkl:
 
         # Build WHERE clause from resolved attributes.
         # Country/region/dependency are unique by country+region+subtype.
-        # City/county/localadmin need the name for disambiguation.
+        # City/county/localadmin use (id OR name) for resilient disambiguation.
         conditions = [
             f"country = '{sqlescape(country)}'",
             f"subtype = '{sqlescape(subtype)}'",
@@ -592,7 +597,9 @@ class Wkl:
         if region:
             conditions.append(f"region = '{sqlescape(region)}'")
         if subtype in ("county", "locality", "localadmin"):
-            conditions.append(f"names.primary = '{sqlescape(name_primary)}'")
+            conditions.append(
+                f"(id = '{sqlescape(gers_id)}' OR names.primary = '{sqlescape(name_primary)}')"
+            )
 
         where_clause = " AND ".join(conditions)
         query = f"SELECT {expr} FROM overture WHERE {where_clause} LIMIT 1"
@@ -603,7 +610,7 @@ class Wkl:
             raise ValueError(
                 f"No geometry found for: {chain_str} "
                 f"(country={country}, region={region}, subtype={subtype}, "
-                f"name={name_primary})"
+                f"id={gers_id}, name={name_primary})"
             )
         return result_df.head(1).to_arrow_table().column(0)[0].as_py()
 

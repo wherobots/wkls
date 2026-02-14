@@ -198,7 +198,7 @@ Support for the following formats will come in future versions once implemented 
 - `.geojson()`
 - `.svg()`
 
-At that point, `wkls` uses the resolved attributes (country, region, subtype, and name) to query the Overture **division_area** GeoParquet directly from S3 via [Apache SedonaDB](https://sedona.apache.org/latest/). This attribute-based approach leverages Parquet predicate pushdown on low-cardinality columns for fast lookups.
+At that point, `wkls` queries the Overture **division_area** GeoParquet directly from S3 via [Apache SedonaDB](https://sedona.apache.org/latest/). The WHERE clause filters on low-cardinality columns (country, subtype, region, is_land) for Parquet predicate pushdown, then disambiguates city/county/localadmin results using `(id = '<gers_id>' OR names.primary = '<name>')`. This makes lookups resilient to either identifier changing across Overture releases — if GERS IDs stabilize, the ID match is the fast path; if the ID drifts, the name still resolves correctly.
 
 The current Overture Maps dataset version can be checked with `wkls.overture_version()`.
 
