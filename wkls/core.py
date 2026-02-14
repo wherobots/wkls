@@ -549,6 +549,17 @@ class Wkl:
     def _get_geom_expr(self, expr: str) -> Any:
         """Retrieve geometry using a SQL expression.
 
+        Resolves the location chain against the local metadata table, then
+        queries the remote Overture GeoParquet using name-based attributes
+        (country, region, subtype, name) rather than GERS IDs. This avoids
+        coupling to unstable IDs and leverages Parquet predicate pushdown
+        on low-cardinality columns for faster lookups.
+
+        For country/region/dependency subtypes, the combination of
+        country + region + subtype is unique, so no name matching is needed.
+        For city/county/localadmin subtypes, the name is included to
+        disambiguate between multiple entities in the same region.
+
         Args:
             expr: SQL expression to apply to the geometry column.
 
@@ -564,15 +575,36 @@ class Wkl:
             hint = _build_error_hint(self.chain, suggestions)
             raise ValueError(hint.strip())
 
-        geom_id = df.head(1).to_arrow_table().column("id")[0].as_py()
-        query = f"""
-            SELECT {expr}
-            FROM overture
-            WHERE id = '{geom_id}'
-        """
+        row = df.head(1).to_arrow_table()
+        country = row.column("country")[0].as_py()
+        region = row.column("region")[0].as_py()
+        subtype = row.column("subtype")[0].as_py()
+        name_primary = row.column("name_primary")[0].as_py()
+
+        # Build WHERE clause from resolved attributes.
+        # Country/region/dependency are unique by country+region+subtype.
+        # City/county/localadmin need the name for disambiguation.
+        conditions = [
+            f"country = '{sqlescape(country)}'",
+            f"subtype = '{sqlescape(subtype)}'",
+            "is_land = true",
+        ]
+        if region:
+            conditions.append(f"region = '{sqlescape(region)}'")
+        if subtype in ("county", "locality", "localadmin"):
+            conditions.append(f"names.primary = '{sqlescape(name_primary)}'")
+
+        where_clause = " AND ".join(conditions)
+        query = f"SELECT {expr} FROM overture WHERE {where_clause} LIMIT 1"
+
         result_df = sedona.sql(query)
         if result_df.count() == 0:
-            raise ValueError(f"No geometry found for ID: {geom_id}")
+            chain_str = ".".join(self.chain)
+            raise ValueError(
+                f"No geometry found for: {chain_str} "
+                f"(country={country}, region={region}, subtype={subtype}, "
+                f"name={name_primary})"
+            )
         return result_df.head(1).to_arrow_table().column(0)[0].as_py()
 
     def wkt(self) -> str:
