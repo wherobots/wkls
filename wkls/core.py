@@ -29,8 +29,9 @@ from . import data, queries
 
 __all__ = ["Wkl", "ChainableDataFrame"]
 
-# S3 bucket URL for listing Overture Maps releases
-_S3_BUCKET_URL = "https://overturemaps-us-west-2.s3.amazonaws.com/"
+# S3 bucket URL for listing Overture Maps releases (HTTP avoids SSL cert
+# issues on macOS system Python installs that lack certifi/root certs)
+_S3_BUCKET_URL = "http://overturemaps-us-west-2.s3.amazonaws.com/"
 _S3_RELEASE_PREFIX = "release/"
 _S3_DIVISION_AREA_SUFFIX = "theme=divisions/type=division_area/"
 
