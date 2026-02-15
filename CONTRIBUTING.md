@@ -44,6 +44,29 @@ We welcome contributions! Whether you're fixing bugs, adding features, improving
 - Geometry data comes from **Overture Maps Foundation** via S3
 - Tests require internet access to fetch data from AWS Open Data Registry
 
+## Updating the Bundled Metadata
+
+The file `wkls/data/overture.zstd18.parquet` contains pre-extracted metadata (no geometry) from the Overture Maps dataset. When a new Overture release is available, regenerate it using the provided script:
+
+```bash
+# Auto-detect and use the latest Overture release
+uv run python scripts/generate_metadata.py
+
+# Or pin a specific version
+uv run python scripts/generate_metadata.py --version 2026-01-21.0
+
+# List available releases
+uv run python scripts/generate_metadata.py --list
+```
+
+The script embeds the Overture version in the parquet file-level metadata for traceability. You can inspect it with:
+
+```bash
+uv run python -c "import pyarrow.parquet as pq; print(pq.read_metadata('wkls/data/overture.zstd18.parquet').metadata)"
+```
+
+After regenerating, run the full test suite — some count-based assertions in `tests/test_us.py` may need updating to reflect changes in the new Overture release.
+
 ## Development Commands
 
 ```bash
