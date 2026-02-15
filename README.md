@@ -20,7 +20,7 @@
 
 ## Overview
 
-`wkls` fetches geometries from [Overture Maps Foundation](https://overturemaps.org/) GeoParquet data (version 2025-12.17.0) hosted on the Registry of Open Data on AWS.
+`wkls` fetches geometries from [Overture Maps Foundation](https://overturemaps.org/) GeoParquet data hosted on the Registry of Open Data on AWS. It automatically detects the latest available Overture Maps release.
 
 You can instantly get geometries in formats like Well-known Text (WKT) and Well-known Binary (WKB):
 
@@ -150,11 +150,37 @@ You can check which version of the Overture Maps dataset is being used:
 
 ```python
 print(wkls.overture_version())
-"2025-12.17.0"
+# e.g. "2026-01-21.0"
 ```
 
+#### Listing available releases
+
+```python
+print(wkls.overture_releases())
+# e.g. ['2025-12-17.0', '2026-01-21.0']
+```
+
+#### Pinning a specific version
+
+Use `configure()` to switch to a specific Overture Maps release at runtime:
+
+```python
+wkls.configure(overture_version="2025-12-17.0")
+print(wkls.overture_version())  # "2025-12-17.0"
+```
+
+An invalid version raises a `ValueError` listing the available releases.
+
+You can also pin a version via the `WKLS_OVERTURE_VERSION` environment variable, which is useful for CI or Docker environments:
+
+```bash
+export WKLS_OVERTURE_VERSION=2025-12-17.0
+```
+
+**Priority order:** `configure()` > `WKLS_OVERTURE_VERSION` env var > auto-detect latest.
+
 > [!NOTE]
-> The `overture_version()` method is only available at the root level, not on chained objects like `wkls.us.overture_version()`.
+> `overture_version()`, `overture_releases()`, and `configure()` are only available at the root level, not on chained objects like `wkls.us.overture_version()`.
 
 ### Debug mode
 
@@ -200,7 +226,7 @@ Support for the following formats will come in future versions once implemented 
 
 At that point, `wkls` queries the Overture **division_area** GeoParquet directly from S3 via [Apache SedonaDB](https://sedona.apache.org/latest/). The WHERE clause filters on low-cardinality columns (country, subtype, region, is_land) for Parquet predicate pushdown, then disambiguates city/county/localadmin results using `(id = '<gers_id>' OR names.primary = '<name>')`. This makes lookups resilient to either identifier changing across Overture releases — if GERS IDs stabilize, the ID match is the fast path; if the ID drifts, the name still resolves correctly.
 
-The current Overture Maps dataset version can be checked with `wkls.overture_version()`.
+The current Overture Maps dataset version can be checked with `wkls.overture_version()`. Use `wkls.configure(overture_version="...")` to pin a specific release, or `wkls.overture_releases()` to list what's available.
 
 ## Contributing
 
