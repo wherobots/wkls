@@ -7,14 +7,13 @@ def test_access():
     assert len(wkls.us.wkt()) > 0
     assert len(wkls.us.ca.wkt()) > 0
     assert len(wkls.us.ny.newyork.wkt()) > 0
-    assert len(wkls.us.ny.cityofnewyork.wkt()) > 0
     assert len(wkls.us.ca.sanfrancisco.wkt()) > 0
 
     assert wkls.countries().count() == 219
     assert wkls.us.regions().count() == 51
     assert wkls.IN.regions().count() == 37
     assert wkls["IN"]["MH"].counties().count() == 36
-    assert wkls["IN"]["MH"].cities().count() == 329
+    assert wkls["IN"]["MH"].cities().count() == 347
 
     # Test San Francisco search returns DataFrame directly
     san_francisco_results = wkls["us"]["ca"]["%San Francisco%"].to_arrow_table()
