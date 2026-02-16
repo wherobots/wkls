@@ -202,7 +202,8 @@ wkls/
 ├── pyproject.toml           # Project configuration (PEP 621)
 ├── uv.lock                  # Lock file for dependencies
 ├── README.md                # User documentation
-└── CONTRIBUTING.md          # Contribution guidelines
+├── CONTRIBUTING.md          # Contribution guidelines
+└── RELEASING.md             # Release guidelines and versioning policy
 ```
 
 ## Key Architecture Notes
@@ -224,6 +225,7 @@ wkls/
 **Runtime:**
 - `sedonadb>=0.2.0` - Spatial query engine
 - `pyarrow>=14.0.0` - Arrow table data extraction
+- `geoarrow-pyarrow>=0.2.0` - GeoArrow integration for spatial data
 - `sqlescapy>=1.0.1` - SQL escaping
 
 **Development:**

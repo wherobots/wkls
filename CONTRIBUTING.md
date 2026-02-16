@@ -126,6 +126,11 @@ uv run pytest tests/test_us.py::test_overture_version -v
 6. **Push to your fork**: `git push origin feature-name`
 7. **Create a pull request** on GitHub
 
+## Releases
+
+For release guidelines, versioning policy, and the release checklist, see
+[RELEASING.md](RELEASING.md).
+
 ## Questions?
 
 Feel free to open an issue if you have questions about contributing or need help getting started!
