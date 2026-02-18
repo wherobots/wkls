@@ -72,10 +72,8 @@ uv run pytest tests/ -v
 
 ### 2. Bump the version
 
-Update the `version` field in `pyproject.toml`:
-
-```toml
-version = "1.0.1"  # or whatever the new version is
+```bash
+uv version --bump patch  # or minor, major
 ```
 
 ### 3. Commit and tag
@@ -104,15 +102,4 @@ Check that both workflows complete successfully:
 ## Commit Message Conventions
 
 We use [Conventional Commits](https://www.conventionalcommits.org/) for commit
-messages. This makes the auto-generated release notes readable:
-
-| Prefix | Use for |
-|--------|---------|
-| `feat:` | New features or capabilities |
-| `fix:` | Bug fixes |
-| `chore:` | Metadata refreshes, dependency updates, housekeeping |
-| `docs:` | Documentation changes |
-| `ci:` | CI/CD workflow changes |
-| `build:` | Build system or packaging changes |
-| `refactor:` | Code restructuring without behavior changes |
-| `test:` | Test additions or modifications |
+messages. This makes the auto-generated release notes readable.
