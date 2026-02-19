@@ -17,7 +17,8 @@ wkls.us.ca.sanfrancisco.wkt()
 
 - Chainable attribute access to countries, states, counties, and cities
 - Precise geometries from [Overture Maps Foundation](https://overturemaps.org/) — no bounding boxes, no shapefiles
-- Output in WKT or WKB (GeoJSON, HexWKB, and SVG planned)
+- Currently, `wkls` outputs boundaries in WKT or WKB
+- Support for GeoJSON, HexWKB, and SVG planned
 - Zero configuration — no API keys, no downloads, no setup
 - Automatically uses the latest Overture Maps release
 
@@ -116,21 +117,20 @@ You can mix attribute and bracket access freely.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started, development setup, and submission guidelines.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+`wkls` includes, references, and leverages data from the "Divisions" theme of [Overture](https://overturemaps.org), from Overture Maps Foundation:
 
-This project uses data from the Overture Maps Foundation [Divisions](https://docs.overturemaps.org/schema/reference/divisions/division/) theme:
-
-- © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL)
-- [geoBoundaries](https://www.geoboundaries.org/) (CC BY 4.0)
-- [Esri Community Maps](https://communitymaps.arcgis.com/home/) (CC BY 4.0)
-- [Land Information New Zealand](https://www.linz.govt.nz/) (CC BY 4.0)
+ * © OpenStreetMap contributors. Available under the [Open Database License](https://www.openstreetmap.org/copyright).
+ * [geoBoundaries](https://www.geoboundaries.org/). Available under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+ * [Esri Community Maps contributors](https://communitymaps.arcgis.com/home/). Available under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+ * [Land Information New Zealand (LINZ)](https://www.linz.govt.nz/). Available under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ## Acknowledgments
 
-- [Overture Maps Foundation](https://overturemaps.org/) for open geospatial data
-- [AWS Open Data Registry](https://registry.opendata.aws/) for hosting
-- [Apache SedonaDB](https://sedona.apache.org/sedonadb/) for spatial queries
+- [Overture Maps Foundation](https://overturemaps.org/) for providing high-quality, open geospatial data.
+- [AWS Open Data Registry](https://registry.opendata.aws/) for hosting the dataset.
+- [Apache SedonaDB](https://sedona.apache.org/sedonadb/) for the high-performance, single-node spatial query and analytics engine.

@@ -84,13 +84,5 @@ wkls.us.ca.sanfrancisco.wkt()  # prints the underlying SQL
 1. Push and open a pull request
 
 ## Releases
-<<<<<<< pranav/docs/readme-revamp
-=======
-
-For release guidelines, versioning policy, and the release checklist, see
-[RELEASING.md](RELEASING.md).
-
-## Questions?
->>>>>>> main
 
 See [RELEASING.md](RELEASING.md) for versioning policy and release process.
