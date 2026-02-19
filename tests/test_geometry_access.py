@@ -6,12 +6,12 @@ import wkls
 
 
 @pytest.fixture
-def stoneyridge() -> wkls.Wkl:
+def stoneyridge() -> wkls.core.ChainableDataFrame:
     return wkls.fk.stoneyridge
 
 
 @pytest.fixture
-def sf() -> wkls.Wkl:
+def sf() -> wkls.core.ChainableDataFrame:
     # noinspection PyUnresolvedReferences
     return wkls.us.ca.sanfrancisco
 
