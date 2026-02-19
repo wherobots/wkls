@@ -45,6 +45,7 @@ def test_svg(sf):
         geom = sf.svg()
         assert isinstance(geom, str)
 
+
 def test_arrow(sf):
     pa = pytest.importorskip("pyarrow")
     assert hasattr(sf, "__arrow_c_array__")
@@ -52,6 +53,7 @@ def test_arrow(sf):
     assert len(array) == 1
     assert array.type.extension_name == "geoarrow.wkb"
     assert array.storage[0].as_py() == sf.wkb()
+
 
 def test_countries_without_region(stoneyridge):
     geom = stoneyridge.wkt()

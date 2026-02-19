@@ -361,9 +361,7 @@ class ChainableDataFrame:
         return super().__getitem__(key)
 
     def __arrow_c_array__(self, requested_schema=None):
-        return Wkl(self._chain).__arrow_c_array__(
-            requested_schema=requested_schema
-        )
+        return Wkl(self._chain).__arrow_c_array__(requested_schema=requested_schema)
 
     @property
     def _constructor(self) -> type[ChainableDataFrame]:
@@ -864,9 +862,7 @@ class Wkl:
 
         wkb_bytes = self.wkb()
         pyarrow_wkb_array = ga.with_crs([wkb_bytes], crs=ga.OGC_CRS84)
-        return pyarrow_wkb_array.__arrow_c_array__(
-            requested_schema=requested_schema
-        )
+        return pyarrow_wkb_array.__arrow_c_array__(requested_schema=requested_schema)
 
     def dependencies(self) -> sedonadb.dataframe.DataFrame:
         """Get all dependencies (territories, overseas regions, etc.).
