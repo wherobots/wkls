@@ -1,4 +1,4 @@
-# wkls
+# wkls: Well-Known Locations
 
 [![PyPI version](https://img.shields.io/pypi/v/wkls.svg)](https://pypi.org/project/wkls/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/wkls.svg)](https://pypi.org/project/wkls/)
@@ -15,7 +15,7 @@ wkls.us.ca.sanfrancisco.wkt()
 # "MULTIPOLYGON (((-122.5279985 37.8155806...)))"
 ```
 
-- Chainable attribute access for 219 countries, 53 dependencies, and thousands of regions and cities
+- Chainable attribute access to countries, states, counties, and cities
 - Precise geometries from [Overture Maps Foundation](https://overturemaps.org/) — no bounding boxes, no shapefiles
 - Output in WKT or WKB
 - Zero configuration — no API keys, no downloads, no setup
