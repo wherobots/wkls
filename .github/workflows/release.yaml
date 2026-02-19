@@ -21,6 +21,7 @@ jobs:
         run: |
           # Get the previous tag
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "PREV_TAG=$PREV_TAG" >> $GITHUB_ENV
           
           if [ -z "$PREV_TAG" ]; then
             echo "body=Initial release" >> $GITHUB_OUTPUT
