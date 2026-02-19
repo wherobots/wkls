@@ -1,15 +1,18 @@
 # Contributing to wkls
 
 We welcome contributions! If you're unsure where to start, check the
-[open issues](https://github.com/wherobots/wkls/issues) or open a new one
+[open issues](https://github.com/wherobots/wkls/issues) or open a new issue
 to discuss your idea.
 
 ## Development setup
 
+This project uses [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
+as its package manager.
+
 ```bash
 # Fork and clone the repository, then:
 cd wkls
-uv sync --all-extras --dev
+uv sync --all-extras --dev  # install all dependencies (including dev tools)
 
 # Verify everything works
 uv run pytest tests/ -v
@@ -74,11 +77,11 @@ wkls.us.ca.sanfrancisco.wkt()  # prints the underlying SQL
 ## Submitting changes
 
 1. Create a feature branch: `git checkout -b feature-name`
-2. Make your changes with tests
-3. Ensure tests and linting pass: `uv run pytest tests/ -v && uv run ruff check .`
-4. Commit using [Conventional Commits](https://www.conventionalcommits.org/):
+1. Make your changes with tests
+1. Ensure tests and linting pass: `uv run pytest tests/ -v && uv run ruff check .`
+1. Commit using [Conventional Commits](https://www.conventionalcommits.org/):
    `git commit -m "feat: add new geometry format"`
-5. Push and open a pull request
+1. Push and open a pull request
 
 ## Releases
 

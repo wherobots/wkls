@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![CI](https://github.com/wherobots/wkls/actions/workflows/run_tests.yaml/badge.svg)](https://github.com/wherobots/wkls/actions/workflows/run_tests.yaml)
 
-Precise administrative boundaries — countries, regions, and cities — in one line of Python.
+`wkls` gives you administrative boundaries — countries, regions, counties, and cities — in one line of Python.
 
 ```python
 import wkls
@@ -17,7 +17,7 @@ wkls.us.ca.sanfrancisco.wkt()
 
 - Chainable attribute access to countries, states, counties, and cities
 - Precise geometries from [Overture Maps Foundation](https://overturemaps.org/) — no bounding boxes, no shapefiles
-- Output in WKT or WKB
+- Output in WKT or WKB (GeoJSON, HexWKB, and SVG planned)
 - Zero configuration — no API keys, no downloads, no setup
 - Automatically uses the latest Overture Maps release
 
@@ -29,9 +29,9 @@ pip install wkls
 
 ## Usage
 
-### Countries, regions, and places
+### Countries, regions, counties, and cities
 
-Chain up to 3 levels: **country** → **region** → **place**.
+Chain up to 3 levels: **country** → **region** → **county or city**.
 
 ```python
 import wkls
@@ -43,7 +43,7 @@ wkls.us.ca.sanfrancisco.wkt()  # San Francisco
 
 Countries and dependencies use [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2) codes.
 Regions use the code suffix from Overture (e.g. `ca` for `US-CA`).
-Places match by name against counties, localities, and neighborhoods.
+Counties and cities match by name against the Overture dataset.
 
 ### Geometry formats
 
@@ -107,8 +107,8 @@ You can mix attribute and bracket access freely.
 `wkls` resolves locations in two stages:
 
 1. **Metadata resolution** — your chained attributes are matched against a
-   bundled metadata table (country by ISO code, region by code suffix, place
-   by name). No geometry is loaded at this stage.
+   bundled metadata table (country by ISO code, region by code suffix, county
+   or city by name). No geometry is loaded at this stage.
 
 2. **Geometry fetch** — when you call `.wkt()` or `.wkb()`, the geometry is
    fetched from Overture Maps GeoParquet on S3 via
