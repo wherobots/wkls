@@ -6,12 +6,12 @@ import wkls
 
 
 @pytest.fixture
-def stoneyridge() -> wkls.Wkl:
+def stoneyridge() -> wkls.core.ChainableDataFrame:
     return wkls.fk.stoneyridge
 
 
 @pytest.fixture
-def sf() -> wkls.Wkl:
+def sf() -> wkls.core.ChainableDataFrame:
     # noinspection PyUnresolvedReferences
     return wkls.us.ca.sanfrancisco
 
@@ -44,6 +44,15 @@ def test_svg(sf):
     with pytest.raises(NotImplementedError):
         geom = sf.svg()
         assert isinstance(geom, str)
+
+
+def test_arrow(sf):
+    pa = pytest.importorskip("pyarrow")
+    assert hasattr(sf, "__arrow_c_array__")
+    array = pa.array(sf)
+    assert len(array) == 1
+    assert array.type.extension_name == "geoarrow.wkb"
+    assert array.storage[0].as_py() == sf.wkb()
 
 
 def test_countries_without_region(stoneyridge):
