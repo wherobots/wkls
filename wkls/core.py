@@ -252,7 +252,7 @@ def _build_error_hint(chain: list[str], suggestions: list[str]) -> str:
     )
 
 
-class ChainableDataFrame(sedonadb.dataframe.DataFrame):
+class ChainableDataFrame:
     """A DataFrame that maintains chaining capability for the wkls library.
 
     This class wraps SedonaDB DataFrames to allow attribute-based chaining
@@ -273,7 +273,7 @@ class ChainableDataFrame(sedonadb.dataframe.DataFrame):
             df: Source SedonaDB DataFrame to wrap.
             chain: List of chained attribute names (e.g., ['us', 'ca']).
         """
-        super().__init__(df._ctx, df._impl, df._options)
+        object.__setattr__(self, "_df", df)
         object.__setattr__(self, "_chain", chain or [])
 
     def __getattr__(self, attr: str) -> ChainableDataFrame:
@@ -360,6 +360,11 @@ class ChainableDataFrame(sedonadb.dataframe.DataFrame):
         # but handle it as DataFrame indexing for safety
         return super().__getitem__(key)
 
+    def __arrow_c_array__(self, requested_schema=None):
+        return Wkl(self._chain).__arrow_c_array__(
+            requested_schema=requested_schema
+        )
+
     @property
     def _constructor(self) -> type[ChainableDataFrame]:
         """Return the constructor for DataFrame operations.
@@ -375,7 +380,7 @@ class ChainableDataFrame(sedonadb.dataframe.DataFrame):
         Returns:
             String representation of the DataFrame, with a hint if empty.
         """
-        base_repr = super().__repr__()
+        base_repr = self._df.__repr__()
         # Check for empty results by examining the repr output (avoids extra count() query)
         # SedonaDB empty DataFrames show header row followed immediately by footer
         # Pattern: ╞══...══╡ (separator) followed by └──...──┘ (footer) with no data rows
@@ -845,6 +850,23 @@ class Wkl:
         #     f"ST_AsSVG(geometry, {str(relative).lower()}, {precision})"
         # )
         raise NotImplementedError("ST_AsSVG() isn't implemented yet")
+
+    def __arrow_c_array__(self, requested_schema=None):
+        """Implement the Arrow PyCapsule protocol
+
+        Resolves this Wkl as a GeoArrow array of length one with the
+        appropriate extension type such that this object is recognized
+        as geometry with the appropriate CRS when interacting with
+        arrow-based APIs (e.g., pyarrow.array() or sedonadb.sql()
+        parameters.
+        """
+        import geoarrow.pyarrow as ga
+
+        wkb_bytes = self.wkb()
+        pyarrow_wkb_array = ga.with_crs([wkb_bytes], crs=ga.OGC_CRS84)
+        return pyarrow_wkb_array.__arrow_c_array__(
+            requested_schema=requested_schema
+        )
 
     def dependencies(self) -> sedonadb.dataframe.DataFrame:
         """Get all dependencies (territories, overseas regions, etc.).
