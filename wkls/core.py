@@ -823,13 +823,12 @@ class Wkl:
         """Get GeoJSON geometry for the first result.
 
         Returns:
-            GeoJSON string representation.
+            GeoJSON string representation of the geometry.
 
         Raises:
-            NotImplementedError: This format is not yet supported in SedonaDB.
+            ValueError: If no results found for the location chain.
         """
-        # return self._get_geom_expr("ST_AsGeoJSON(geometry)")
-        raise NotImplementedError("ST_AsGeoJSON() isn't implemented yet")
+        return self._get_geom_expr("ST_AsGeoJSON(geometry)")
 
     def svg(self, relative: bool = False, precision: int = 15) -> str:
         """Get SVG path geometry for the first result.

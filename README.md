@@ -17,8 +17,8 @@ wkls.us.ca.sanfrancisco.wkt()
 
 - Chainable attribute access to countries, states, counties, and cities
 - Precise geometries from [Overture Maps Foundation](https://overturemaps.org/) — no bounding boxes, no shapefiles
-- Currently, `wkls` outputs boundaries in WKT or WKB
-- Support for GeoJSON, HexWKB, and SVG planned
+- Outputs boundaries in WKT, WKB, or GeoJSON
+- Support for HexWKB and SVG planned
 - Zero configuration — no API keys, no downloads, no setup
 - Automatically uses the latest Overture Maps release
 
