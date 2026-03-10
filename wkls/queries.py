@@ -109,13 +109,13 @@ SUGGEST_COUNTRY = """
 
 # For region-level suggestions (bidirectional prefix match on region codes)
 SUGGEST_REGION = """
-    SELECT DISTINCT LOWER(SUBSTRING(region, 4)) as chainable_name
+    SELECT DISTINCT LOWER(SPLIT_PART(region, '-', 2)) as chainable_name
     FROM wkls
     WHERE country = '{country}'
       AND subtype = 'region'
       AND (
-        LOWER(SUBSTRING(region, 4)) LIKE '{search_term}%'
-        OR '{search_term}' LIKE LOWER(SUBSTRING(region, 4)) || '%'
+        LOWER(SPLIT_PART(region, '-', 2)) LIKE '{search_term}%'
+        OR '{search_term}' LIKE LOWER(SPLIT_PART(region, '-', 2)) || '%'
       )
     ORDER BY chainable_name ASC
     LIMIT {limit}

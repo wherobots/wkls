@@ -34,10 +34,10 @@ def test_hexwkb(sf):
 
 
 def test_geojson(sf):
-    with pytest.raises(NotImplementedError):
-        geom = sf.geojson()
-        geom = json.loads(geom)
-        assert isinstance(geom, dict)
+    geom = sf.geojson()
+    parsed = json.loads(geom)
+    assert isinstance(parsed, dict)
+    assert parsed["type"] == "MultiPolygon"
 
 
 def test_svg(sf):
