@@ -309,37 +309,44 @@ wheels = [
 
 [[package]]
 name = "sedonadb"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/4e/14dca5722dab2269292a5a98658af33f5bdc8066913cd0843011a3d89f2e/sedonadb-0.2.0-cp310-cp310-macosx_12_0_arm64.whl", hash = "sha256:3dcb5cc7f6398206013c6743e9296a2b4834754f8ce6b55d7ad7c88a0cc1a524", size = 46645570 },
-    { url = "https://files.pythonhosted.org/packages/a8/a6/11c6302c2673b5f54b329c055fe9fea4537ce1be26923ae514e50f5a5d16/sedonadb-0.2.0-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:cd4b2f57d8b44fef479deae22ed29dca8d3a53263624f3e36930f4bfe36148c6", size = 52929830 },
-    { url = "https://files.pythonhosted.org/packages/db/47/05f27ed59c91968e67ff27dd36a3829e0e73d196ed2a7a7def270eaeb9b7/sedonadb-0.2.0-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:b065a5d62a4a7bd9518b8e0a304ead5f7b079dc1c8d58d2c4d676e98b8439cca", size = 53911176 },
-    { url = "https://files.pythonhosted.org/packages/bb/d1/f3707c9aede548cf1d2c828f664082033d4d83440b0fbb2091b99c171eab/sedonadb-0.2.0-cp310-cp310-win_amd64.whl", hash = "sha256:c9c0ff8fb204cb65b33e0905ebc0b08ea668f1573ea33c73c01859e67151420a", size = 46607171 },
-    { url = "https://files.pythonhosted.org/packages/ff/fa/d61c5c1eef096d2eaff534f3710d218b19390231935f3a2930d101d251d2/sedonadb-0.2.0-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:e0527cbfd472a4ec6ae14421584dac93ca11868c9c509f75e6859d4f80cfb7cc", size = 46645139 },
-    { url = "https://files.pythonhosted.org/packages/80/8b/c4bec93fa1a4fc3762ee33af0dc3d8a0c515bbf6432e7a0de180f7ae7751/sedonadb-0.2.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:4b2c92a1483a1df63c573d6294e343242042f8657755008b8c9b6b2c1387729a", size = 52929623 },
-    { url = "https://files.pythonhosted.org/packages/0f/ab/edd95492f6741d6411ed4a8d9caed797f86e4c17c97461b89df2ca7e4be0/sedonadb-0.2.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:84719c2775ceba388122f31765d0096faf9ff676bd34c12a7c27c6d04f4479b7", size = 53910944 },
-    { url = "https://files.pythonhosted.org/packages/60/21/f2f1dea48cd07b703fba4519438f1a6768a1e4c5ab15b3925d71618edf4f/sedonadb-0.2.0-cp311-cp311-win_amd64.whl", hash = "sha256:e2c258852fd4f8550e11349ce1b3f2bc571466a2b37b27177b064b5c3948c852", size = 46615158 },
-    { url = "https://files.pythonhosted.org/packages/f7/d4/66475c279e4c96f301b183a91c13aea0c25cc728936f69ea845a1afff2d0/sedonadb-0.2.0-cp312-cp312-macosx_12_0_arm64.whl", hash = "sha256:08cf6c38291aaa52b14894c34e64033bdefca27fde7ead3f8768090bfe8408f7", size = 46647555 },
-    { url = "https://files.pythonhosted.org/packages/db/42/51259bb31a97a37861d6af9a38436a5136feb712a323cd77cf475306a2fd/sedonadb-0.2.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:e760cc7bc4b594b8596e2c33c9bb92a3bfac0893155ee6334b036ab4f9c25539", size = 52919275 },
-    { url = "https://files.pythonhosted.org/packages/f5/37/d7bc678c4a033799302cd5b618cf2bed65fa88c6d8e310a42e2725a71093/sedonadb-0.2.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:1b1b82762cadd5b8dba5c25da2a09c9a04b26412fcd09e98a43c1bc09a579e53", size = 53924239 },
-    { url = "https://files.pythonhosted.org/packages/dd/0d/2ce8650d24d6e777f51af4837c91cdcc3465fe66ff6baefe52c7472081c7/sedonadb-0.2.0-cp312-cp312-win_amd64.whl", hash = "sha256:ccac6deb1aa75867e7608449b430feac3e6d4081a4699549fd742794c8e24e23", size = 46614656 },
-    { url = "https://files.pythonhosted.org/packages/51/e9/7dd7b0e762a7e2dda41f5c17f375dd0362943fff273c3fbb618c091bab2c/sedonadb-0.2.0-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:4d9239613eade75e213419acaceb434dd6c99fa8a495992744793a08eaf5f0f5", size = 46647786 },
-    { url = "https://files.pythonhosted.org/packages/2d/c0/f7e9044c8d79e47abbf785ef20ea1b5cae66ed37fbf49765aa58752c3020/sedonadb-0.2.0-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:cf481232b56dbb97e98f3ca805771f93260c5c96649896dc1451188a3abd3a4c", size = 52918628 },
-    { url = "https://files.pythonhosted.org/packages/d0/31/cb40eea9624dc20933c8b6d3da7a53b2761ba87b3dfc9d62e3328d0b1d1f/sedonadb-0.2.0-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:bd93ebb3922ddf98a44095ad1be464293a44d6318446c26ba22cd391993ca8de", size = 53923582 },
-    { url = "https://files.pythonhosted.org/packages/10/62/33617731156d7f9d21a14433cb98b9ea8c04ad1b647e43a89ef1815a3ba0/sedonadb-0.2.0-cp313-cp313-win_amd64.whl", hash = "sha256:ee652df7b684e202a63123e4baac8aec529fd59168fae1e664659325e613b256", size = 46611707 },
-    { url = "https://files.pythonhosted.org/packages/ae/5b/165c2a1343c0a412e49671910f777e837f9fd609bcec550bc65b52e8d24a/sedonadb-0.2.0-cp314-cp314-macosx_12_0_arm64.whl", hash = "sha256:096fb391307f9b4a2979bae165e80734195a2218f7d09d374ffe1ea7ae33905c", size = 46628969 },
-    { url = "https://files.pythonhosted.org/packages/c1/4f/29bb29798384c7fbd089447f0db4e313a7b521fe2c99404793fedda4064c/sedonadb-0.2.0-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:33a52d3d84fe18fa7c58f5eec6c74e516e58eb2af01be8db29712fc4123c353f", size = 52926223 },
-    { url = "https://files.pythonhosted.org/packages/67/2b/235bd983d41e449f67a52f9c97114c0b593b85455c81d1fba81410603e5c/sedonadb-0.2.0-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:ea6e95f700bbe52d4b076d328cf748a711b4c5739b54faf0917d97c8d7f93f6b", size = 53927158 },
-    { url = "https://files.pythonhosted.org/packages/27/8f/e77265d1f675ae6d0cb31b317ca45e6e1f57b18e66cfecc823d9c3568517/sedonadb-0.2.0-cp314-cp314-win_amd64.whl", hash = "sha256:6a5001dc1cbde3cb848be856b50f0ca84140298b32c763a1ccedec77c2471882", size = 46605258 },
-    { url = "https://files.pythonhosted.org/packages/20/f8/c7cf73b755c96bcee80c12ba5bc82b4368fac4a53655bfab17c4c76b4198/sedonadb-0.2.0-cp314-cp314t-macosx_12_0_arm64.whl", hash = "sha256:3d8438f3ee41a2701ad579a43e17faab8d77073110d1bb6925903b160c94672d", size = 46635721 },
-    { url = "https://files.pythonhosted.org/packages/dd/2a/3aaf02774924f75aaca6b6f64c20aaa4efa6b47f8a6477110bbcdd5d826e/sedonadb-0.2.0-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:1e91abcb057a5b077d633a76609257319019eb9a08f81a8c6a2cd17e98004ae3", size = 52927394 },
-    { url = "https://files.pythonhosted.org/packages/a7/b1/344c92775cc6eae7aaf91a45668c52922e834ddc5a13d43a2495a57e8f6c/sedonadb-0.2.0-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:ac55e72a41cf6f24de7c3b949999f015e471213c4aa18a2b36ec2fcaa19ba2b2", size = 53907475 },
-    { url = "https://files.pythonhosted.org/packages/5d/81/d8ec149e25d6cb948dc782568d1a8486226d5db9045e28ae8384d416ba3d/sedonadb-0.2.0-cp314-cp314t-win_amd64.whl", hash = "sha256:c17118238718256c3c23b250022dde3c042946e5102bfc2b70a5d09eed1f8029", size = 46604711 },
-    { url = "https://files.pythonhosted.org/packages/9e/95/ab3068f22be715cd5fa1c7d017e0c2623683f7b9823b826c42b50155368d/sedonadb-0.2.0-cp39-cp39-macosx_12_0_arm64.whl", hash = "sha256:3b3f587ecf69a82602557585c26e75742661803f90845db5cdaafad463e85a16", size = 46645238 },
-    { url = "https://files.pythonhosted.org/packages/c9/bc/7c4605ac8e9a89c226c74d6bd7cdec7a998a16b5d3545aa8a8e9c3b9ea63/sedonadb-0.2.0-cp39-cp39-manylinux_2_28_aarch64.whl", hash = "sha256:81b703a33b91dc02eb21df914bc71acc3065ddecacb1474dc70e0e891ff32293", size = 52929393 },
-    { url = "https://files.pythonhosted.org/packages/fb/b3/f6457e7d5a01caa6738ebfe489ade191ae0061f00648a6818f94e32976c0/sedonadb-0.2.0-cp39-cp39-manylinux_2_28_x86_64.whl", hash = "sha256:a34c597703f7af077720f1f3d89444de751643852c6f5c38f70219af66e5077a", size = 53911894 },
-    { url = "https://files.pythonhosted.org/packages/7f/23/2a02b1ecadb43aaa19f9ff3037150b6122670a6b539c54a669d61cf86e51/sedonadb-0.2.0-cp39-cp39-win_amd64.whl", hash = "sha256:ddcdf45a899119c5b6b5328149aeae632a4b3db1dac3711a895c46fe97741e07", size = 46608881 },
+    { url = "https://files.pythonhosted.org/packages/17/63/711917684a3c6f0a4e86287630c83a7f353d26b31547a78a79f85ea819c5/sedonadb-0.3.0-cp310-cp310-macosx_12_0_arm64.whl", hash = "sha256:6b93ea5711b3a1329ac5c6d5b1f2da530df6d1b7150bc78641010daf9e87357d", size = 48234896 },
+    { url = "https://files.pythonhosted.org/packages/77/1c/2b98c1d1647f177aa5333fd600cdde86fc1e1e589560ea2b73660554c86b/sedonadb-0.3.0-cp310-cp310-macosx_12_0_x86_64.whl", hash = "sha256:e6af748f587deb8826e5801de41d133ad7861fac8051f1190dc64e3e312752d9", size = 52479320 },
+    { url = "https://files.pythonhosted.org/packages/c6/5f/5452791fc79ffbdaa044d7a8743a205ac78a21df6aa9373f5d55a5b61cf3/sedonadb-0.3.0-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:5e468bc3b43d807ee38e830ac4b0c528d98b767d9b47f86bd639c8b73bec3679", size = 54592548 },
+    { url = "https://files.pythonhosted.org/packages/af/3e/876ee0bff11040804ef6084dbf4259271d0e25c207b4f1ad3ef0955d5010/sedonadb-0.3.0-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:60d92c720d39bf08cb6b88653e390f99f235e477e3c15262219c3aeb4ba72592", size = 56054546 },
+    { url = "https://files.pythonhosted.org/packages/1b/23/eb59ff8eae674f8942be0360e684f1802ab78dd4df8ee23acfc45ccfe64d/sedonadb-0.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:0c36aed7ad0d29e07d678fc52d97c58d4d3aa634aa71af6560666014ab952b8d", size = 47635510 },
+    { url = "https://files.pythonhosted.org/packages/74/f5/0dbed9a7fe70e09f0c80ab41b5d533af13a8104af87d0fdfc3dbb294ba30/sedonadb-0.3.0-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:1d04bf1320b547c0da74687bf14cba975ca8d9c1b1ff75cbab80bd4218cf6912", size = 48233781 },
+    { url = "https://files.pythonhosted.org/packages/48/39/2b5c9e9283049908e27ed440b297faf251a0379434eac69d9534ad70d240/sedonadb-0.3.0-cp311-cp311-macosx_12_0_x86_64.whl", hash = "sha256:305eab7de7cf9250c95b285b487b844e21c608f7b7b06a2087e599070a81429d", size = 52479457 },
+    { url = "https://files.pythonhosted.org/packages/f8/ae/afd2d910b6ca4917c2dc2bd378d5b312b162af4cd510e002e2b51ce8a910/sedonadb-0.3.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:6660555fdbe185f878c43ec74bdfcad8a944b46bdd57a579927579d8ce0089c9", size = 54590770 },
+    { url = "https://files.pythonhosted.org/packages/01/8d/2d81e8f2be6b4432a1fd5aefbcbabbf6908bb441c4c29afe0383ca58ec13/sedonadb-0.3.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:2beea90a5cdf0af392c3aa34bdc273b5335f7579d16d8035e86e04e0a06e9d70", size = 56056340 },
+    { url = "https://files.pythonhosted.org/packages/ab/f4/619e1dc0c23a46b37db1f2135190d9df2201bb251ca19d6d2951c22c57ec/sedonadb-0.3.0-cp311-cp311-win_amd64.whl", hash = "sha256:10b83038f1b4089fbe168c197b795ee3ef639b9d237c7043a069d9da86221069", size = 47636456 },
+    { url = "https://files.pythonhosted.org/packages/af/fd/8d1f61d68c28748f6fd1ece7e9162916bcc3a119a2a0235a84ad41e7c509/sedonadb-0.3.0-cp312-cp312-macosx_12_0_arm64.whl", hash = "sha256:5c10a94bf740e1c52cfe2e96fa330883d4950eb7c459c5c6b9537be20be03f67", size = 48213350 },
+    { url = "https://files.pythonhosted.org/packages/30/85/cb6dcf4c571956494e4af93f739a8a775b4c520508577576bfc55c6a3815/sedonadb-0.3.0-cp312-cp312-macosx_12_0_x86_64.whl", hash = "sha256:0722df9b75d2dd548ea42917eeeaf230fed8a4b17e3d6caaecba637fc220386c", size = 52469018 },
+    { url = "https://files.pythonhosted.org/packages/db/f9/bbad62ce60543da6466d64b731b32817cc11dd23a9b019da3ab7133640e2/sedonadb-0.3.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:6fbbc7261a1df4791516a1072e2d0ab41fe1ed19bbabe1ef24376b8bcaf0af2e", size = 54594553 },
+    { url = "https://files.pythonhosted.org/packages/6c/4f/e7267dbdf3590657b4d85aea8fea8da119e044bf69ee767a4c5aac3a83bd/sedonadb-0.3.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:15ba03b3db6efa6f10f0c29c81a0bcc7001648e768557e988f6e44cd24e49cd8", size = 56052505 },
+    { url = "https://files.pythonhosted.org/packages/45/23/35020876c9774eceb97d001e7f13dde2e99d9d91773d75cba24577d8a41f/sedonadb-0.3.0-cp312-cp312-win_amd64.whl", hash = "sha256:219bb32c1790a8d1c6262c8d60d5abaee60a08234c916ff53c412e54330b23c6", size = 47648499 },
+    { url = "https://files.pythonhosted.org/packages/26/95/24868e5ffe2202b8468da2ab089c9a3024391adaf64534adac05476ff67a/sedonadb-0.3.0-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:7fa56ddb9a219108cd43b2bf89485b442e8c112bb066b0819fdce70e1a8289c3", size = 48213659 },
+    { url = "https://files.pythonhosted.org/packages/d1/61/db780868532831880a88896d7be838bea4f80c7d6c45d70a57462231eed4/sedonadb-0.3.0-cp313-cp313-macosx_12_0_x86_64.whl", hash = "sha256:2e4620d7941307a71c5108bfa1e7e4a7ada5d2f07653464fd70cb2ae982446bb", size = 52468932 },
+    { url = "https://files.pythonhosted.org/packages/88/42/c0a8268bd5b227418a1faf2b016d0676ce094ed87b147bfed93c08f8d88a/sedonadb-0.3.0-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:c96f33179fbee94c5b7e2128fe87fdd348327de09e8312e1781dcff7a3bac21f", size = 54593960 },
+    { url = "https://files.pythonhosted.org/packages/58/1f/6f614d0cc17642c4c2b27b5bec922e4803fdb52ba4e5f28cdf6b87797a0e/sedonadb-0.3.0-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:4ea4e9be33b4afabda0a4e7f29589d19da5039a49bfac4d59a36e9e20fe36bc4", size = 56051308 },
+    { url = "https://files.pythonhosted.org/packages/76/cf/2d979e761334aee8c985b19378227654c58d7c121636a97171ff2e96e679/sedonadb-0.3.0-cp313-cp313-win_amd64.whl", hash = "sha256:fa0db31ba4509b67d1cbc8de3c2ea07382432d8d813dd250f1a10012f3faaf2c", size = 47647669 },
+    { url = "https://files.pythonhosted.org/packages/69/72/66bfe6aaba583d244b9814c10a9919301be4f356bb22292659f294b2bfc8/sedonadb-0.3.0-cp314-cp314-macosx_12_0_arm64.whl", hash = "sha256:0073819d1e1b8b34d71f2ab951b24095b2cefb3be2962c905fe587aad77667dc", size = 48214404 },
+    { url = "https://files.pythonhosted.org/packages/21/b0/a934b6d30b99edc35deaa39def709176464e7a9658836da14a4a4402721e/sedonadb-0.3.0-cp314-cp314-macosx_12_0_x86_64.whl", hash = "sha256:3a25d5963a791db894ecfcf2c4dbe1b7dd4925346e3d6bc9d9e4fd222b0f3d6c", size = 52461922 },
+    { url = "https://files.pythonhosted.org/packages/e1/89/2741289e8895e7ff7358b839a9871a0210e968f886bfcd2d1b5f0c4ee301/sedonadb-0.3.0-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:1d45dcc931627a160e742bcd3a8ead0541bf5e8c90b0050786b9b903c590d166", size = 54589941 },
+    { url = "https://files.pythonhosted.org/packages/3d/e5/bacc6c489a173f6a64e2c1f9eb17bdefd50b269252c88f33b822c3ca1b75/sedonadb-0.3.0-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:9ee0d01ac4d929a9ceda55b61e7d45e5459444b020ff816e36f3180991d0c238", size = 56055638 },
+    { url = "https://files.pythonhosted.org/packages/18/e5/8cb2a07843377dcde768183641dfb4b85252db13c10c39cea6328789f873/sedonadb-0.3.0-cp314-cp314-win_amd64.whl", hash = "sha256:ff49b78361924084e4b3377073767ca84dfd22ee01ee5753648d56a72749d2f2", size = 47654712 },
+    { url = "https://files.pythonhosted.org/packages/a0/69/0bb0fe87fe4c3800f357a9a7911501b09ecbfafa61126bb179b2f95e89a5/sedonadb-0.3.0-cp314-cp314t-macosx_12_0_arm64.whl", hash = "sha256:9c2192278025d7c77f9e34fb37674b83e4e6d59bc456f1ac54e79d7c970b4a68", size = 48230721 },
+    { url = "https://files.pythonhosted.org/packages/cb/a9/63df83f2cab5b59e3fa0ec463774787186077752be48489534d86d724d96/sedonadb-0.3.0-cp314-cp314t-macosx_12_0_x86_64.whl", hash = "sha256:9601f6c1ca0219b9d2529a17dfaf2bd11244203b0a6e26b16a42dfe7307e5b65", size = 52501358 },
+    { url = "https://files.pythonhosted.org/packages/cf/08/55c124c15d3c244713fb7818e6931afea6ddfaa7a2ba6c3619d86eda96f3/sedonadb-0.3.0-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:fd9f94f6d16980936889e2675b2c609d10ce28d7ba280a5bef7fa5f4be790990", size = 54583331 },
+    { url = "https://files.pythonhosted.org/packages/b7/28/3e5613e2fb53a1114b94a7c04447a5fc97ead6a48e954bf3f8d1815fbd28/sedonadb-0.3.0-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:07b32b5fa406749b8d9086aced2fa038c625e6bc40c7dda672fbcb471f70dde9", size = 56046805 },
+    { url = "https://files.pythonhosted.org/packages/64/7b/18abc884e49eeb419b25230977f95bb8edd9577624e6021bf41f4eda4b57/sedonadb-0.3.0-cp314-cp314t-win_amd64.whl", hash = "sha256:79e68e4c9c52bc225a3a11b2841c28f83a379f5b6f7b4426fd7d2cc50c515236", size = 47660011 },
+    { url = "https://files.pythonhosted.org/packages/7d/c7/7ab36c5eb909f9710734fee52f2e6e6c2224beda3ce87f0300e5d74deb80/sedonadb-0.3.0-cp39-cp39-macosx_12_0_arm64.whl", hash = "sha256:bda5486d6f8e11d721e80d9bb43e0720a1960fed9f840df63f8283a5ba4752a1", size = 48234692 },
+    { url = "https://files.pythonhosted.org/packages/bb/a3/43ad9ae3183b08396be2bc3beecf31e9a4c4d236a35c18e42cb237c6a2d5/sedonadb-0.3.0-cp39-cp39-macosx_12_0_x86_64.whl", hash = "sha256:fa353e5847ba3a116dcd44508d5759288b15b5296c7bc165302b6df7a53015a8", size = 52479785 },
+    { url = "https://files.pythonhosted.org/packages/57/d5/ed00a55d7992bd01c359f80976ca9471bfad7223aedd57169bdfa88dc5bb/sedonadb-0.3.0-cp39-cp39-manylinux_2_28_aarch64.whl", hash = "sha256:9aae51bcc04f608cb5835a091a39df8932186837d5548e73eff00c85ad597560", size = 54593183 },
+    { url = "https://files.pythonhosted.org/packages/ed/5f/ef135392038d60595a3e7344954ab68ebe44d4fe2f174a28acacb53a0846/sedonadb-0.3.0-cp39-cp39-manylinux_2_28_x86_64.whl", hash = "sha256:f26b53e85b4c8d59ac2f5b2218374d65f8eeebdb284e43a74811fa521fa31414", size = 56054676 },
+    { url = "https://files.pythonhosted.org/packages/66/2f/9c1ffa070a9ab3386f3d4d1bd6740c869e4a98ca201fd75a434c21c17a47/sedonadb-0.3.0-cp39-cp39-win_amd64.whl", hash = "sha256:b046c3da8c7d7f901e3d1653fe9cc133685031393ea220de95bdf2b30275b920", size = 47637708 },
 ]
 
 [[package]]
@@ -401,8 +408,8 @@ wheels = [
 
 [[package]]
 name = "wkls"
-version = "0.5.0"
-source = { virtual = "." }
+version = "1.0.1"
+source = { editable = "." }
 dependencies = [
     { name = "geoarrow-pyarrow" },
     { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -421,7 +428,7 @@ dev = [
 requires-dist = [
     { name = "geoarrow-pyarrow", specifier = ">=0.2.0" },
     { name = "pyarrow", specifier = ">=14.0.0" },
-    { name = "sedonadb", specifier = ">=0.2.0" },
+    { name = "sedonadb", specifier = ">=0.3.0" },
     { name = "sqlescapy", specifier = ">=1.0.1" },
 ]
 
