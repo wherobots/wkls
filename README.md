@@ -49,8 +49,9 @@ Counties and cities match by name against the Overture dataset.
 ### Geometry formats
 
 ```python
-wkls.de.wkt()  # Well-Known Text string
-wkls.de.wkb()  # Well-Known Binary bytes
+wkls.de.wkt()      # Well-Known Text string
+wkls.de.wkb()      # Well-Known Binary bytes
+wkls.de.geojson()  # GeoJSON string
 ```
 
 ### Exploring the dataset
@@ -111,7 +112,7 @@ You can mix attribute and bracket access freely.
    bundled metadata table (country by ISO code, region by code suffix, county
    or city by name). No geometry is loaded at this stage.
 
-2. **Geometry fetch** — when you call `.wkt()` or `.wkb()`, the geometry is
+2. **Geometry fetch** — when you call `.wkt()`, `.wkb()`, or `.geojson()`, the geometry is
    fetched from Overture Maps GeoParquet on S3 via
    [Apache SedonaDB](https://sedona.apache.org/sedonadb/).
 
