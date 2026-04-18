@@ -42,9 +42,22 @@ wkls.us.ca.wkt()               # California
 wkls.us.ca.sanfrancisco.wkt()  # San Francisco
 ```
 
-Countries and dependencies use [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2) codes.
-Regions use the code suffix from Overture (e.g. `ca` for `US-CA`).
-Counties and cities match by name against the Overture dataset.
+Every level accepts an [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2) code
+*or* the English name (lowercase, spaces removed):
+
+```python
+wkls.india.maharashtra.wkt()   # country name + region name
+wkls.us.oregon                 # sidesteps the `or` keyword collision
+wkls.austria.burgenland        # sidesteps numeric region suffixes (AT-1)
+```
+
+If you prefer explicit instantiation over the module singleton:
+
+```python
+from wkls import Wkl
+wkl = Wkl()
+wkl.us.ca.sanfrancisco.wkt()
+```
 
 ### Geometry formats
 
@@ -94,15 +107,17 @@ Priority: `configure()` > environment variable > auto-detect.
 
 ### Bracket access
 
-Some names collide with Python keywords or DataFrame methods. Use bracket
-syntax when attribute access doesn't work:
+Most keyword/numeric collisions are resolved by name access (`wkls.austria.burgenland`
+instead of `wkls.at["1"]`). Bracket syntax is still available on chained objects for
+the rare cases where attribute access collides with a DataFrame method:
 
 ```python
-wkls["us"]["ne"].wkt()  # Nebraska (wkls.us.ne would call DataFrame.ne)
-wkls["at"]["1"].regions()  # Austria's region "1"
+wkls.us["ne"].wkt()     # Nebraska (wkls.us.ne would call DataFrame.ne)
+wkls.us.ca["%fran%"]    # wildcard search
 ```
 
-You can mix attribute and bracket access freely.
+Bracket access at the module root (`wkls["..."]`) is not supported — real Python
+modules aren't subscriptable. Use dot access or `Wkl()["..."]` instead.
 
 ## How it works
 
