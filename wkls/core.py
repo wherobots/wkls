@@ -1,16 +1,20 @@
-"""
-wkls - Well-Known Locations
+"""wkls — Well-Known Locations.
 
-A Python library for accessing global administrative boundaries using chainable syntax.
-Fetches geometries from Overture Maps Foundation GeoParquet data.
+A Python library for accessing global administrative boundaries using
+chainable syntax. Fetches geometries from Overture Maps Foundation
+GeoParquet data via Apache SedonaDB.
 
 Example usage:
     >>> import wkls
     >>> wkls.us.ca.sanfrancisco.wkt()
     'MULTIPOLYGON (((-122.5279985 37.8155806...)))'
 
-    >>> wkls.countries()  # List all countries
-    >>> wkls.us.regions()  # List US states/regions
+    >>> from wkls import Wkl
+    >>> wkl = Wkl()
+    >>> wkl.us.ca.sanfrancisco.wkt()
+
+    >>> wkls.countries()       # List all countries
+    >>> wkls.us.regions()      # List US states/regions
 """
 
 from __future__ import annotations
@@ -182,9 +186,11 @@ def _initialize_table() -> sedonadb.SedonaContext:
 # Initialize the table when the module is imported
 sedona = _initialize_table()
 
-# Cache for country region checks (country_iso -> has_region)
-# This is static per Overture dataset version, so safe to cache indefinitely
-_country_has_region_cache: dict[str, bool] = {}
+# Cache for country identifier -> (canonical ISO, has_region).
+# Keyed by the lowercased raw identifier (ISO or name); populated once per
+# country-shaped access, shared across all Wkl instantiations in the
+# process. Static per Overture version, safe to cache indefinitely.
+_country_info: dict[str, tuple[str, bool]] = {}
 
 
 def sqlescape(v: str) -> str:
@@ -253,10 +259,18 @@ def _build_error_hint(chain: list[str], suggestions: list[str]) -> str:
 
 
 class ChainableDataFrame:
-    """A DataFrame that maintains chaining capability for the wkls library.
+    """A location-aware wrapper around sedonadb.dataframe.DataFrame.
 
-    This class wraps SedonaDB DataFrames to allow attribute-based chaining
-    (e.g., `wkls.us.ca.sanfrancisco`) while preserving DataFrame functionality.
+    Returned by dot-access chaining (e.g., ``wkls.us.ca`` or ``wkl.us.ca``).
+    Supports:
+
+    - Continued chaining: ``wkls.us.ca.sanfrancisco``
+    - Geometry access: ``.wkt()``, ``.wkb()``, ``.geojson()``
+    - Listing: ``.regions()``, ``.cities()``, ``.counties()``
+
+    The underlying DataFrame is accessible via ``._df``:
+
+        >>> wkls.us.ca._df.to_arrow_table()  # pyarrow.Table
 
     Attributes:
         _chain: List of chained attribute names representing the location path.
@@ -401,20 +415,62 @@ class ChainableDataFrame:
 
 
 class Wkl:
-    """Well-Known Location resolver for administrative boundaries.
+    """Well-Known Locations — access global administrative boundaries.
 
-    This class handles the resolution of chained location attributes to
-    database queries and geometry retrieval from Overture Maps data.
+    Provides chainable access to Overture Maps administrative boundary
+    geometries via Apache SedonaDB. Chain country → region → place using
+    dot notation with names or ISO codes.
 
-    The chain supports up to 3 levels:
-        1. Country/Dependency (ISO 3166-1 alpha-2 code)
-        2. Region (region code suffix)
-        3. Place (county, locality, or neighborhood name)
+    Quick Start (two ways to use):
 
-    Example:
-        >>> wkl = Wkl(['us', 'ca', 'sanfrancisco'])
-        >>> wkl.wkt()
-        'MULTIPOLYGON (((-122.5279985 37.8155806...)))'
+        >>> import wkls                               # ergonomic
+        >>> wkls.us.ca.sanfrancisco.wkt()
+        >>> wkls.india.maharashtra.wkt()
+
+        >>> from wkls import Wkl                      # explicit
+        >>> wkl = Wkl()
+        >>> wkl.us.ca.sanfrancisco.wkt()
+        >>> wkl.us.california.sanfrancisco.wkt()      # full name works too
+
+    Chaining (3 levels max):
+
+        Level 1 — Country:  ``wkls.us``  OR  ``wkls.unitedstates``
+        Level 2 — Region:   ``wkls.us.ca``  OR  ``wkls.us.california``
+        Level 3 — Place:    ``wkls.us.ca.sanfrancisco``
+
+    Name Rules:
+        Names are lowercase, spaces removed:
+
+        - "San Francisco" → ``sanfrancisco``
+        - "New York"      → ``newyork``
+        - "United States" → ``unitedstates``
+        - ISO codes also work: ``us``, ``ca``, ``gb``, ``de``, ``jp``…
+
+        Names that contain diacritics or punctuation in ``name_en``
+        (e.g., Côte d'Ivoire, São Paulo) are not Python-typable — fall
+        back to the ISO code: ``wkls.ci``, ``wkls.br.sp``.
+
+    Geometry Formats:
+        - ``.wkt()``     → str   (Well-Known Text)
+        - ``.wkb()``     → bytes (Well-Known Binary)
+        - ``.geojson()`` → str   (GeoJSON)
+
+    Discovery:
+        - ``wkls.countries()``         DataFrame of all 219 countries
+        - ``wkls.us.regions()``        DataFrame of US regions
+        - ``wkls.us.ca.cities()``      DataFrame of CA cities
+
+    Configuration:
+        - ``wkls.overture_version()``  Current Overture version
+        - ``wkls.overture_releases()`` All available versions
+        - ``wkls.configure(overture_version="2025-12-17.0")``
+
+    Environment Variables:
+        - ``WKLS_DEBUG=true``  Print all SQL queries to stdout
+
+    Arrow Interop:
+        >>> import pyarrow as pa
+        >>> pa.array(wkls.us.ca.sanfrancisco)  # geoarrow.wkb array
 
     Attributes:
         chain: List of location identifiers in the chain.
@@ -426,19 +482,49 @@ class Wkl:
         """Initialize a Wkl instance.
 
         Args:
-            chain: List of location identifiers (e.g., ['us', 'ca']).
+            chain: List of location identifiers. Accepts ISO codes
+                (``['us', 'ca']``) or human-readable names
+                (``['unitedstates', 'california']``). Empty for the
+                root instance.
         """
-        if chain and len(chain) >= 1:
-            country_iso = chain[0].upper()
-            # Check cache first, query only if not cached
-            if country_iso not in _country_has_region_cache:
-                df_check = sedona.sql(
-                    queries.COUNTRY_HAS_REGIONS.format(country=sqlescape(country_iso))
-                )
-                # Country has regions if there are any subtype='region' entries
-                _country_has_region_cache[country_iso] = df_check.count() > 0
-            self._has_region = _country_has_region_cache[country_iso]
         self.chain: list[str] = chain or []
+        self._country_iso: str = ""
+        if not self.chain:
+            return
+
+        key = self.chain[0].lower()
+        if key not in _country_info:
+            iso, has_region = self._lookup_country(key)
+            _country_info[key] = (iso, has_region)
+            # Alias the ISO form so `wkls.us` and `wkls.unitedstates` share
+            # the same cached entry on whichever access comes second.
+            _country_info[iso.lower()] = (iso, has_region)
+
+        self._country_iso, self._has_region = _country_info[key]
+
+    def _lookup_country(self, identifier: str) -> tuple[str, bool]:
+        """Resolve any country identifier to (canonical ISO, has_region).
+
+        Accepts ISO codes (``'us'``, ``'US'``) and names
+        (``'unitedstates'``, ``'United States'``). If the identifier
+        matches no known country, returns ``(identifier.upper(), False)``
+        so downstream ``resolve()`` produces an empty DataFrame with the
+        standard "Did you mean?" hint.
+
+        Args:
+            identifier: User-supplied country identifier, any case.
+
+        Returns:
+            Tuple of (canonical ISO, has_region). For unknown inputs,
+            the uppercased original string and ``False``.
+        """
+        df = sedona.sql(queries.COUNTRY_LOOKUP.format(identifier=sqlescape(identifier)))
+        table = df.to_arrow_table()
+        if table.num_rows == 0:
+            return identifier.upper(), False
+        iso = table.column("iso")[0].as_py()
+        df_has = sedona.sql(queries.COUNTRY_HAS_REGIONS.format(country=sqlescape(iso)))
+        return iso, df_has.count() > 0
 
     def overture_version(self) -> str:
         """Return the version of the Overture Maps dataset being used.
@@ -520,6 +606,7 @@ class Wkl:
             )
 
         _current_overture_version = overture_version
+        _country_info.clear()
         sedona.read_parquet(
             _overture_uri(overture_version),
             options={
@@ -610,26 +697,30 @@ class Wkl:
             )
 
         params: dict[str, str] = {}
-        country_iso = self.chain[0].upper()
+        country_iso = self._country_iso
+        raw_country = self.chain[0]
+
         query = queries.COUNTRY_DEPENDENCY
-        params["country"] = country_iso
+        params["country"] = raw_country
 
         if len(self.chain) > 1:
             if self._has_region:
                 query = queries.REGION
+                params["country"] = country_iso
                 region_iso = country_iso + "-" + self.chain[1].upper()
                 params["region"] = region_iso
+                params["region_name"] = self.chain[1]
             else:
                 query = queries.CITY_NO_REGION
-                city = self.chain[1].lower()
-                params["city"] = city
+                params["country"] = country_iso
+                params["city"] = self.chain[1].lower()
 
         if len(self.chain) > 2:
             query = queries.CITY
+            params["country"] = country_iso
             region_iso = country_iso + "-" + self.chain[1].upper()
-            city = self.chain[2]
             params["region"] = region_iso
-            params["city"] = city
+            params["city"] = self.chain[2]
 
         return sedona.sql(query.format(**{k: sqlescape(v) for k, v in params.items()}))
 
@@ -666,7 +757,7 @@ class Wkl:
                 limit=n,
             )
         elif len(self.chain) == 2:
-            country_iso = self.chain[0].upper()
+            country_iso = self._country_iso
             if self._has_region:
                 # Region-level suggestions (prefix match on region codes)
                 query = queries.SUGGEST_REGION.format(
@@ -685,7 +776,7 @@ class Wkl:
                 use_distance_filter = True
         else:
             # City-level with region (e.g., wkls.us.ca.sanfran)
-            country_iso = self.chain[0].upper()
+            country_iso = self._country_iso
             region = country_iso + "-" + self.chain[1].upper()
             query = queries.SUGGEST_CITY.format(
                 country=sqlescape(country_iso),
@@ -924,7 +1015,7 @@ class Wkl:
                 "Use wkls.<country>.regions() to get regions for a country."
             )
 
-        country_iso = self.chain[0].upper()
+        country_iso = self._country_iso
 
         if not self._has_region:
             raise ValueError(
@@ -961,7 +1052,7 @@ class Wkl:
                 f"Use wkls.<country>.<region>.{method_name}() to get {method_name} for a region."
             )
 
-        country_iso = self.chain[0].upper()
+        country_iso = self._country_iso
 
         if len(self.chain) == 1:
             if self._has_region:

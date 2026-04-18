@@ -14,15 +14,42 @@ INITIALIZATION = """
 
 COUNTRY_DEPENDENCY = """
     SELECT * FROM wkls
-    WHERE country ILIKE '{country}'
-      AND subtype IN ('country', 'dependency')
+    WHERE subtype IN ('country', 'dependency')
+      AND (
+        country ILIKE '{country}'
+        OR REPLACE(name_en, ' ', '') ILIKE REPLACE('{country}', ' ', '')
+        OR REPLACE(name_primary, ' ', '') ILIKE REPLACE('{country}', ' ', '')
+      )
 """
 
 REGION = """
     SELECT * FROM wkls
     WHERE country ILIKE '{country}'
-      AND region ILIKE '{region}'
       AND subtype = 'region'
+      AND (
+        region ILIKE '{region}'
+        OR REPLACE(name_en, ' ', '') ILIKE REPLACE('{region_name}', ' ', '')
+        OR REPLACE(name_primary, ' ', '') ILIKE REPLACE('{region_name}', ' ', '')
+      )
+"""
+
+COUNTRY_LOOKUP = """
+    SELECT DISTINCT country AS iso
+    FROM wkls
+    WHERE subtype IN ('country', 'dependency')
+      AND (
+        country ILIKE '{identifier}'
+        OR REPLACE(name_en, ' ', '') ILIKE REPLACE('{identifier}', ' ', '')
+        OR REPLACE(name_primary, ' ', '') ILIKE REPLACE('{identifier}', ' ', '')
+      )
+    LIMIT 1
+"""
+
+COUNTRY_HAS_REGIONS = """
+    SELECT * FROM wkls
+    WHERE country = '{country}'
+      AND subtype = 'region'
+      LIMIT 1
 """
 
 CITY = """
@@ -49,13 +76,6 @@ CITY_NO_REGION = """
 """
 
 # --- Metadata queries ---
-
-COUNTRY_HAS_REGIONS = """
-    SELECT * FROM wkls
-    WHERE country = '{country}'
-      AND subtype = 'region'
-      LIMIT 1
-"""
 
 REGIONS_LIST = """
     SELECT * FROM wkls
