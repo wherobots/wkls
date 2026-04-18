@@ -274,8 +274,12 @@ def test_suggestions_in_repr():
 
 def test_suggestions_in_repr_bracket_access():
     """Test that suggestions appear when using bracket access."""
-    # Access a non-existent country using bracket syntax
-    result = wkls["uss"]
+    # Access a non-existent country using bracket syntax on a Wkl instance.
+    # The module itself is no longer subscriptable (PEP 562 compliant); use
+    # Wkl() for bracket access if needed.
+    from wkls import Wkl
+
+    result = Wkl()["uss"]
     repr_str = repr(result)
     assert "No results found for: uss" in repr_str
     assert "Did you mean:" in repr_str

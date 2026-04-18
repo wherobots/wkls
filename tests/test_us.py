@@ -12,11 +12,13 @@ def test_access():
     assert wkls.countries().count() == 219
     assert wkls.us.regions().count() == 51
     assert wkls.IN.regions().count() == 37
-    assert wkls["IN"]["MH"].counties().count() == 36
-    assert wkls["IN"]["MH"].cities().count() == 346
+    # Bracket access at the module root is no longer supported (PEP 562);
+    # use Wkl() or dot access. Chained bracket access still works.
+    assert wkls.IN["MH"].counties().count() == 36
+    assert wkls.IN["MH"].cities().count() == 346
 
     # Test San Francisco search returns DataFrame directly
-    san_francisco_results = wkls["us"]["ca"]["%San Francisco%"].to_arrow_table()
+    san_francisco_results = wkls.us.ca["%San Francisco%"].to_arrow_table()
     assert san_francisco_results.num_rows == 2, (
         "San Francisco search should return exactly two results"
     )
