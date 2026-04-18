@@ -137,7 +137,7 @@ def test_nonexistent_location_errors():
         pass  # Could be various exceptions depending on validation
 
     # Nonexistent city with search pattern (this should return empty results)
-    result = wkls.us.ca["%nonexistentcity%"]
+    result = wkls.us.ca.search("nonexistentcity")
     assert result.count() == 0, "Nonexistent city search should return empty DataFrame"
 
 
@@ -180,8 +180,8 @@ def test_did_you_mean_country_level():
     assert "No results found for: u" in repr_str
     assert "Did you mean:" in repr_str
     assert "us" in repr_str
-    # Verify wildcard tip has correct syntax for root level
-    assert "wkls['%u%']" in repr_str
+    # Verify search tip has correct syntax for root level
+    assert "wkls.search('u')" in repr_str
 
 
 def test_suggestions_for_extended_codes():
@@ -203,7 +203,7 @@ def test_no_suggestions_for_unrelated_codes():
     # No suggestions since no code starts with "xyz" and "xyz" doesn't start with any code
     assert "Did you mean:" not in repr_str
     # But wildcard tip is still shown
-    assert "wkls.us['%xyz%']" in repr_str
+    assert "wkls.us.search('xyz')" in repr_str
 
 
 def test_did_you_mean_partial_match():
@@ -269,14 +269,14 @@ def test_suggestions_in_repr():
     assert "No results found for: us.ca.sanfran" in repr_str
     assert "Did you mean:" in repr_str
     assert "sanfrancisco" in repr_str
-    assert "wkls.us.ca['%sanfran%']" in repr_str
+    assert "wkls.us.ca.search('sanfran')" in repr_str
 
 
-def test_suggestions_in_repr_bracket_access():
+def test_suggestions_in_repr_bracket_access(ignore_bracket_deprecation):
     """Test that suggestions appear when using bracket access."""
     # Access a non-existent country using bracket syntax on a Wkl instance.
-    # The module itself is no longer subscriptable (PEP 562 compliant); use
-    # Wkl() for bracket access if needed.
+    # Bracket access is deprecated but must still work as a shim — that's
+    # exactly what this test guards against regressing.
     from wkls import Wkl
 
     result = Wkl()["uss"]
@@ -284,7 +284,7 @@ def test_suggestions_in_repr_bracket_access():
     assert "No results found for: uss" in repr_str
     assert "Did you mean:" in repr_str
     assert "us" in repr_str
-    assert "wkls['%uss%']" in repr_str
+    assert "wkls.search('uss')" in repr_str
 
 
 def test_chainable_dataframe_error_propagation():
