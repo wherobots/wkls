@@ -192,6 +192,18 @@ sedona = _initialize_table()
 # process. Static per Overture version, safe to cache indefinitely.
 _country_info: dict[str, tuple[str, bool]] = {}
 
+# Cache for (country_iso, region_identifier) -> canonical region ISO.
+# The identifier key is lowercased raw input (ISO suffix like "mh", full
+# region ISO like "in-mh", or name like "maharashtra"). Canonical value
+# is the full region ISO ("IN-MH"). Static per Overture version.
+_region_info: dict[tuple[str, str], str] = {}
+
+# Cache for __dir__ results, keyed by chain tuple.
+# ()  -> root-level country identifiers
+# ("US",) -> US region identifiers
+# Values are sorted lists of ISO codes + normalized names.
+_dir_cache: dict[tuple[str, ...], list[str]] = {}
+
 
 def sqlescape(v: str) -> str:
     """Escape a string for safe SQL interpolation.
@@ -222,29 +234,66 @@ _WKL_DELEGATED_METHODS = frozenset(
         "counties",
         "cities",
         "subtypes",
+        "search",
     }
 )
 
+# Methods surfaced by __dir__ at each chain depth.
+_DIR_ROOT_METHODS = frozenset(
+    {
+        "Wkl",
+        "ChainableDataFrame",
+        "configure",
+        "countries",
+        "dependencies",
+        "overture_releases",
+        "overture_version",
+        "search",
+        "subtypes",
+    }
+)
+_DIR_COUNTRY_METHODS = frozenset(
+    {
+        "cities",
+        "counties",
+        "geojson",
+        "regions",
+        "search",
+        "wkb",
+        "wkt",
+    }
+)
+_DIR_REGION_METHODS = frozenset(
+    {
+        "cities",
+        "counties",
+        "geojson",
+        "search",
+        "wkb",
+        "wkt",
+    }
+)
+_DIR_CITY_METHODS = frozenset({"geojson", "wkb", "wkt"})
+
 
 def _build_error_hint(chain: list[str], suggestions: list[str]) -> str:
-    """Build error hint message with suggestions and wildcard tip.
+    """Build error hint message with suggestions and a search() tip.
 
     Args:
         chain: List of location identifiers in the chain.
         suggestions: List of suggested location names.
 
     Returns:
-        Formatted hint string with suggestions and wildcard search tip.
+        Formatted hint string with suggestions and a search() tip.
     """
     chain_str = ".".join(chain)
     failed_name = chain[-1]
     chain_prefix = ".".join(chain[:-1])
 
-    # Build wildcard example - handle root level specially
     if chain_prefix:
-        wildcard_example = f"wkls.{chain_prefix}['%{failed_name}%']"
+        search_example = f"wkls.{chain_prefix}.search('{failed_name}')"
     else:
-        wildcard_example = f"wkls['%{failed_name}%']"
+        search_example = f"wkls.search('{failed_name}')"
 
     if suggestions:
         suggestion_hint = f"Did you mean: {', '.join(suggestions)}?\n"
@@ -254,7 +303,7 @@ def _build_error_hint(chain: list[str], suggestions: list[str]) -> str:
     return (
         f"No results found for: {chain_str}\n"
         f"{suggestion_hint}"
-        f"Tip: Use {wildcard_example} to perform a wildcard search.\n"
+        f"Tip: Use {search_example} to search by name.\n"
     )
 
 
@@ -334,20 +383,33 @@ class ChainableDataFrame:
     def __getitem__(
         self, key: Any
     ) -> ChainableDataFrame | sedonadb.dataframe.DataFrame:
-        """Handle bracket access for location chaining or DataFrame indexing.
+        """[Deprecated] Bracket access for location chaining or DataFrame indexing.
 
-        Supports both DataFrame-style indexing and location chaining with
-        search patterns (using % wildcards).
-
-        Args:
-            key: Column name, list of columns, slice, or location string.
-
-        Returns:
-            ChainableDataFrame for location chaining, or DataFrame for indexing.
-
-        Raises:
-            ValueError: If chain exceeds maximum depth of 3.
+        See :meth:`Wkl.__getitem__` for migration guidance. DataFrame-style
+        indexing (list or slice keys) is not deprecated and does not warn.
         """
+        import warnings
+
+        # Location-style access (string key) — warn.
+        if isinstance(key, str):
+            if "%" in key:
+                cleaned = key.strip("%")
+                warnings.warn(
+                    "Bracket access with wildcards is deprecated; "
+                    f"use .search({cleaned!r}) instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+            else:
+                chain_prefix = ".".join(self._chain) + "." if self._chain else ""
+                warnings.warn(
+                    "Bracket access is deprecated; "
+                    f"use dot access (wkls.{chain_prefix}{key.lower()}) or the "
+                    "corresponding name form.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+
         # If we have a chain, continue chaining (location access mode)
         if self._chain:
             new_wkl = Wkl(self._chain + [key.lower()])
@@ -376,6 +438,10 @@ class ChainableDataFrame:
 
     def __arrow_c_array__(self, requested_schema=None):
         return Wkl(self._chain).__arrow_c_array__(requested_schema=requested_schema)
+
+    def __dir__(self) -> list[str]:
+        """Delegate to Wkl.__dir__ for chain-aware attribute listing."""
+        return Wkl(self._chain).__dir__()
 
     @property
     def _constructor(self) -> type[ChainableDataFrame]:
@@ -526,6 +592,43 @@ class Wkl:
         df_has = sedona.sql(queries.COUNTRY_HAS_REGIONS.format(country=sqlescape(iso)))
         return iso, df_has.count() > 0
 
+    @property
+    def _region_iso(self) -> str:
+        """Resolve ``self.chain[1]`` to its canonical region ISO (e.g. ``'IN-MH'``).
+
+        Lazy + cached. Handles both ISO suffixes (``'mh'`` or ``'IN-MH'``) and
+        region names (``'maharashtra'``). Returns an upper-cased naive form
+        like ``'IN-MAHARASHTRA'`` if no match is found so that downstream
+        queries return empty DataFrames and trigger the "Did you mean?" path.
+        """
+        raw = self.chain[1]
+        key = (self._country_iso, raw.lower())
+        if key not in _region_info:
+            _region_info[key] = self._lookup_region(raw)
+        return _region_info[key]
+
+    def _lookup_region(self, identifier: str) -> str:
+        """Resolve a region identifier to its canonical ISO (e.g. 'IN-MH').
+
+        Accepts bare suffix ('mh'), full ISO ('IN-MH'), or name ('maharashtra').
+        """
+        full_iso = (
+            identifier
+            if "-" in identifier
+            else f"{self._country_iso}-{identifier.upper()}"
+        )
+        df = sedona.sql(
+            queries.REGION_LOOKUP.format(
+                country=sqlescape(self._country_iso),
+                identifier=sqlescape(full_iso),
+                name=sqlescape(identifier),
+            )
+        )
+        table = df.to_arrow_table()
+        if table.num_rows == 0:
+            return full_iso.upper()
+        return table.column("iso")[0].as_py()
+
     def overture_version(self) -> str:
         """Return the version of the Overture Maps dataset being used.
 
@@ -607,6 +710,8 @@ class Wkl:
 
         _current_overture_version = overture_version
         _country_info.clear()
+        _region_info.clear()
+        _dir_cache.clear()
         sedona.read_parquet(
             _overture_uri(overture_version),
             options={
@@ -644,22 +749,96 @@ class Wkl:
             return ChainableDataFrame(df, new_wkl.chain)
         return new_wkl
 
+    def __dir__(self) -> list[str]:
+        """Return contextually valid attributes for the current chain level.
+
+        Includes both ISO codes and normalized names — both forms work via
+        ``__getattr__``, so both are advertised. Region-level and deeper
+        return methods only (cities are too numerous to list).
+        """
+        depth = len(self.chain)
+        if depth == 0:
+            methods: frozenset[str] = _DIR_ROOT_METHODS
+            locations = self._dir_countries()
+        elif depth == 1:
+            methods = _DIR_COUNTRY_METHODS
+            locations = self._dir_regions()
+        elif depth == 2:
+            methods = _DIR_REGION_METHODS
+            locations = []
+        else:
+            methods = _DIR_CITY_METHODS
+            locations = []
+        return sorted(set(methods) | set(locations))
+
+    def _dir_countries(self) -> list[str]:
+        """Return cached country-level dir entries (ISO codes + names)."""
+        key: tuple[str, ...] = ()
+        if key not in _dir_cache:
+            _dir_cache[key] = self._collect_dir_entries(
+                sedona.sql(queries.DIR_COUNTRIES)
+            )
+        return _dir_cache[key]
+
+    def _dir_regions(self) -> list[str]:
+        """Return cached region-level dir entries (ISO suffixes + names)."""
+        key: tuple[str, ...] = (self._country_iso,)
+        if key not in _dir_cache:
+            df = sedona.sql(
+                queries.DIR_REGIONS.format(country=sqlescape(self._country_iso))
+            )
+            _dir_cache[key] = self._collect_dir_entries(df)
+        return _dir_cache[key]
+
+    @staticmethod
+    def _collect_dir_entries(df: sedonadb.dataframe.DataFrame) -> list[str]:
+        """Collect ISO and name values from a dir() query result."""
+        table = df.to_arrow_table()
+        result: set[str] = set()
+        for i in range(table.num_rows):
+            iso = table.column("iso")[i].as_py()
+            name = table.column("name")[i].as_py()
+            if iso:
+                result.add(iso)
+            if name:
+                result.add(name)
+        return sorted(result)
+
     def __getitem__(
         self, key: str
     ) -> ChainableDataFrame | sedonadb.dataframe.DataFrame:
-        """Handle bracket access for location chaining.
+        """[Deprecated] Handle bracket access for location chaining.
 
-        Supports search patterns with % wildcards for fuzzy matching.
+        Emits a :class:`DeprecationWarning` pointing at the modern API:
 
-        Args:
-            key: Location identifier or search pattern.
+        - For name-based access, use dot notation: ``wkls.india`` instead of
+          ``wkls["IN"]``, ``wkls.us.oregon`` instead of ``wkls.us["OR"]``.
+        - For wildcard search, use :meth:`search`: ``wkls.us.ca.search("fran")``
+          instead of ``wkls.us.ca["%fran%"]``.
 
-        Returns:
-            ChainableDataFrame or DataFrame for search patterns.
-
-        Raises:
-            ValueError: If chain exceeds maximum depth of 3.
+        The old behavior is preserved for backward compatibility and will be
+        removed in a future major version.
         """
+        import warnings
+
+        if "%" in str(key):
+            cleaned = str(key).strip("%")
+            warnings.warn(
+                "Bracket access with wildcards is deprecated; "
+                f"use .search({cleaned!r}) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        else:
+            chain_prefix = ".".join(self.chain) + "." if self.chain else ""
+            warnings.warn(
+                "Bracket access is deprecated; "
+                f"use dot access (wkls.{chain_prefix}{key.lower()}) or the "
+                "corresponding name form.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         new_wkl = Wkl(self.chain + [key.lower()])
         # Validate chain length immediately
         if len(new_wkl.chain) > 3 and "%" not in key:
@@ -718,8 +897,7 @@ class Wkl:
         if len(self.chain) > 2:
             query = queries.CITY
             params["country"] = country_iso
-            region_iso = country_iso + "-" + self.chain[1].upper()
-            params["region"] = region_iso
+            params["region"] = self._region_iso
             params["city"] = self.chain[2]
 
         return sedona.sql(query.format(**{k: sqlescape(v) for k, v in params.items()}))
@@ -777,10 +955,9 @@ class Wkl:
         else:
             # City-level with region (e.g., wkls.us.ca.sanfran)
             country_iso = self._country_iso
-            region = country_iso + "-" + self.chain[1].upper()
             query = queries.SUGGEST_CITY.format(
                 country=sqlescape(country_iso),
-                region_filter=f"AND region = '{sqlescape(region)}'",
+                region_filter=f"AND region = '{sqlescape(self._region_iso)}'",
                 search_term=sqlescape(search_term),
                 limit=n * 2,
             )
@@ -1068,7 +1245,6 @@ class Wkl:
             return sedona.sql(query.format(country=sqlescape(country_iso)))
 
         # len(self.chain) == 2
-        region_iso = country_iso + "-" + self.chain[1].upper()
         query = f"""
             SELECT * FROM wkls
             WHERE country = '{{country}}'
@@ -1076,7 +1252,9 @@ class Wkl:
               AND subtype IN {subtype_filter}
         """
         return sedona.sql(
-            query.format(country=sqlescape(country_iso), region=sqlescape(region_iso))
+            query.format(
+                country=sqlescape(country_iso), region=sqlescape(self._region_iso)
+            )
         )
 
     def counties(self) -> sedonadb.dataframe.DataFrame:
@@ -1123,3 +1301,56 @@ class Wkl:
 
         query = """SELECT DISTINCT subtype FROM wkls"""
         return sedona.sql(query)
+
+    def search(self, query: str) -> sedonadb.dataframe.DataFrame:
+        """Search for locations matching a substring at the current chain level.
+
+        Performs a case-insensitive substring match against ``name_primary``
+        and ``name_en``. Returns a DataFrame — this is a discovery tool; read
+        the results, then use dot access to chain further.
+
+        Args:
+            query: Search string. Matched against the location name columns
+                with ``ILIKE '%query%'``.
+
+        Returns:
+            DataFrame with columns ``id, country, subtype, name_primary,
+            name_en`` (plus ``region`` at country and region levels).
+
+        Raises:
+            ValueError: If called past city level (chain depth > 2).
+
+        Examples:
+            >>> import wkls
+            >>> wkls.search("united")           # countries with "united"
+            >>> wkls.us.search("new")           # US regions with "new"
+            >>> wkls.us.ca.search("san fran")   # CA cities with "san fran"
+        """
+        depth = len(self.chain)
+        if depth > 2:
+            raise ValueError(
+                "search() cannot be called past city level "
+                f"(chain has {depth} elements; max searchable depth is 2)."
+            )
+
+        escaped_query = sqlescape(query)
+
+        if depth == 0:
+            sql = queries.SEARCH_COUNTRIES.format(query=escaped_query)
+        elif depth == 1:
+            sql = queries.SEARCH_REGIONS.format(
+                country=sqlescape(self._country_iso), query=escaped_query
+            )
+        else:  # depth == 2
+            if self._has_region:
+                sql = queries.SEARCH_CITIES.format(
+                    country=sqlescape(self._country_iso),
+                    region=sqlescape(self._region_iso),
+                    query=escaped_query,
+                )
+            else:
+                sql = queries.SEARCH_CITIES_NO_REGION.format(
+                    country=sqlescape(self._country_iso),
+                    query=escaped_query,
+                )
+        return sedona.sql(sql)
