@@ -1303,28 +1303,34 @@ class Wkl:
         return sedona.sql(query)
 
     def search(self, query: str) -> sedonadb.dataframe.DataFrame:
-        """Search for locations matching a substring at the current chain level.
+        """Search for locations whose names contain a substring.
 
-        Performs a case-insensitive substring match against ``name_primary``
-        and ``name_en``. Returns a DataFrame — this is a discovery tool; read
-        the results, then use dot access to chain further.
+        Searches every row within the current chain's scope — countries,
+        dependencies, regions, counties, and localities alike — and returns
+        matches as a DataFrame. Rows carry a ``subtype`` column so callers
+        can tell what they got back.
+
+        The scope narrows with chain depth:
+
+        - ``wkls.search(q)``        — full dataset
+        - ``wkls.us.search(q)``     — everything under US
+        - ``wkls.us.ca.search(q)``  — everything under California
 
         Args:
-            query: Search string. Matched against the location name columns
-                with ``ILIKE '%query%'``.
+            query: Search string. Matched against ``name_primary`` and
+                ``name_en`` with ``ILIKE '%query%'``.
 
         Returns:
-            DataFrame with columns ``id, country, subtype, name_primary,
-            name_en`` (plus ``region`` at country and region levels).
+            DataFrame with ``id, country, region, subtype, name_primary, name_en``.
 
         Raises:
             ValueError: If called past city level (chain depth > 2).
 
         Examples:
             >>> import wkls
-            >>> wkls.search("united")           # countries with "united"
-            >>> wkls.us.search("new")           # US regions with "new"
-            >>> wkls.us.ca.search("san fran")   # CA cities with "san fran"
+            >>> wkls.search("san francisco")     # finds the city from root
+            >>> wkls.us.search("los angeles")    # scoped to US
+            >>> wkls.us.ca.search("san fran")    # scoped to California
         """
         depth = len(self.chain)
         if depth > 2:
@@ -1336,21 +1342,16 @@ class Wkl:
         escaped_query = sqlescape(query)
 
         if depth == 0:
-            sql = queries.SEARCH_COUNTRIES.format(query=escaped_query)
-        elif depth == 1:
-            sql = queries.SEARCH_REGIONS.format(
+            sql = queries.SEARCH_ROOT.format(query=escaped_query)
+        elif depth == 1 or not self._has_region:
+            # Depth 1, or depth 2 on a country that doesn't use regions.
+            sql = queries.SEARCH_COUNTRY.format(
                 country=sqlescape(self._country_iso), query=escaped_query
             )
-        else:  # depth == 2
-            if self._has_region:
-                sql = queries.SEARCH_CITIES.format(
-                    country=sqlescape(self._country_iso),
-                    region=sqlescape(self._region_iso),
-                    query=escaped_query,
-                )
-            else:
-                sql = queries.SEARCH_CITIES_NO_REGION.format(
-                    country=sqlescape(self._country_iso),
-                    query=escaped_query,
-                )
+        else:  # depth == 2 with regions
+            sql = queries.SEARCH_REGION.format(
+                country=sqlescape(self._country_iso),
+                region=sqlescape(self._region_iso),
+                query=escaped_query,
+            )
         return sedona.sql(sql)

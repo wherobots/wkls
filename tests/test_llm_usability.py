@@ -229,18 +229,46 @@ def test_dir_cached_no_query_on_repeat(capsys):
 # ---------- Stream 2: .search() ----------
 
 
-def test_search_root_returns_countries():
-    """wkls.search() at root returns a DataFrame of matching countries/dependencies."""
-    df = wkls.search("united")
-    assert df.count() >= 3  # US, UK, UAE, at minimum
+def test_search_root_returns_mixed_subtypes():
+    """wkls.search() at root scans every subtype, not just countries."""
+    df = wkls.search("san francisco").to_arrow_table()
+    subtypes = {df.column("subtype")[i].as_py() for i in range(df.num_rows)}
+    # There's no country named San Francisco but many cities and counties;
+    # the result should include city-like subtypes.
+    assert subtypes & {"locality", "localadmin", "county"}, (
+        f"Expected city-like subtypes, got {subtypes}"
+    )
 
 
-def test_search_country_returns_regions():
-    """search() at country level returns matching regions."""
-    df = wkls.us.search("new")
-    table = df.to_arrow_table()
-    names = {table.column("name_primary")[i].as_py() for i in range(table.num_rows)}
-    assert {"New Hampshire", "New Jersey", "New Mexico", "New York"}.issubset(names)
+def test_search_finds_city_from_root():
+    """A root-level search for a city name returns the actual city."""
+    df = wkls.search("san francisco").to_arrow_table()
+    matches = [
+        (df.column("country")[i].as_py(), df.column("name_primary")[i].as_py())
+        for i in range(df.num_rows)
+    ]
+    assert ("US", "San Francisco") in matches
+
+
+def test_search_country_scope_expands():
+    """search() under a country now finds cities, not just regions."""
+    df = wkls.us.search("los angeles").to_arrow_table()
+    subtypes = {df.column("subtype")[i].as_py() for i in range(df.num_rows)}
+    # Expect the locality + county + any region-level match.
+    assert subtypes & {"locality", "county"}
+
+
+def test_search_country_finds_regions_too():
+    """Country-level search still returns region matches alongside cities."""
+    df = wkls.us.search("new").to_arrow_table()
+    names_by_subtype = {
+        (df.column("subtype")[i].as_py(), df.column("name_primary")[i].as_py())
+        for i in range(df.num_rows)
+    }
+    region_names = {n for st, n in names_by_subtype if st == "region"}
+    assert {"New Hampshire", "New Jersey", "New Mexico", "New York"}.issubset(
+        region_names
+    )
 
 
 def test_search_region_returns_cities():
@@ -253,10 +281,9 @@ def test_search_region_returns_cities():
 
 
 def test_search_no_region_country():
-    """search() works on countries without regions (e.g., FK)."""
+    """search() on countries without regions scopes to that country."""
     df = wkls.fk.search("stanley")
-    # FK has no regions, so this exercises SEARCH_CITIES_NO_REGION.
-    # Accept zero-or-more matches — dataset may vary across Overture releases.
+    # FK has no regions; depth-1 search filters by country only.
     assert df is not None
 
 
