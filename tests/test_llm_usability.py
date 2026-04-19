@@ -250,21 +250,48 @@ def test_dir_cached_no_query_on_repeat(capsys):
     assert "SELECT DISTINCT" not in second_out
 
 
-# ---------- Stream 2: .search() (narrow scope) ----------
+# ---------- Stream 2: .search() (subtree scope) ----------
 
 
-def test_search_root_returns_countries():
-    """wkls.search() at root returns matching countries/dependencies."""
-    df = wkls.search("united")
-    assert df.count() >= 3  # US, UK, UAE, at minimum
+def test_search_root_returns_mixed_subtypes():
+    """wkls.search() at root scans every subtype, not just countries."""
+    df = wkls.search("san francisco").to_arrow_table()
+    subtypes = {df.column("subtype")[i].as_py() for i in range(df.num_rows)}
+    # No country named San Francisco but many cities/counties;
+    # the result should include city-like subtypes.
+    assert subtypes & {"locality", "localadmin", "county"}, (
+        f"Expected city-like subtypes, got {subtypes}"
+    )
 
 
-def test_search_country_returns_regions():
-    """search() at country level returns matching regions."""
-    df = wkls.us.search("new")
-    table = df.to_arrow_table()
-    names = {table.column("name_primary")[i].as_py() for i in range(table.num_rows)}
-    assert {"New Hampshire", "New Jersey", "New Mexico", "New York"}.issubset(names)
+def test_search_finds_city_from_root():
+    """A root-level search for a city name returns the actual city."""
+    df = wkls.search("san francisco").to_arrow_table()
+    matches = [
+        (df.column("country")[i].as_py(), df.column("name_primary")[i].as_py())
+        for i in range(df.num_rows)
+    ]
+    assert ("US", "San Francisco") in matches
+
+
+def test_search_country_scope_expands():
+    """search() under a country now finds cities, not just regions."""
+    df = wkls.us.search("los angeles").to_arrow_table()
+    subtypes = {df.column("subtype")[i].as_py() for i in range(df.num_rows)}
+    assert subtypes & {"locality", "county"}
+
+
+def test_search_country_finds_regions_too():
+    """Country-level search still returns region matches alongside cities."""
+    df = wkls.us.search("new").to_arrow_table()
+    names_by_subtype = {
+        (df.column("subtype")[i].as_py(), df.column("name_primary")[i].as_py())
+        for i in range(df.num_rows)
+    }
+    region_names = {n for st, n in names_by_subtype if st == "region"}
+    assert {"New Hampshire", "New Jersey", "New Mexico", "New York"}.issubset(
+        region_names
+    )
 
 
 def test_search_region_returns_cities():
@@ -277,7 +304,7 @@ def test_search_region_returns_cities():
 
 
 def test_search_no_region_country():
-    """search() works on countries without regions (e.g., FK)."""
+    """search() on countries without regions scopes to that country."""
     df = wkls.fk.search("stanley")
     assert df is not None
 
@@ -286,6 +313,51 @@ def test_search_too_deep_raises():
     """search() past city level raises ValueError."""
     with pytest.raises(ValueError, match="past city level"):
         wkls.us.ca.sanfrancisco.search("foo")
+
+
+# ---------- List methods: subtree-scoped regions/counties/cities ----------
+
+
+def test_regions_at_root_returns_all():
+    """wkls.regions() at root returns every region worldwide."""
+    # ~3,900 regions in the dataset; generous lower bound for release drift.
+    assert wkls.regions().count() > 3000
+
+
+def test_regions_scoped_to_country():
+    """wkls.us.regions() returns regions scoped to that country."""
+    assert wkls.us.regions().count() == 51  # 50 states + DC
+
+
+def test_counties_at_country_level():
+    """wkls.us.counties() returns counties in the US — no longer raises."""
+    assert wkls.us.counties().count() > 3000
+
+
+def test_cities_at_country_level():
+    """wkls.us.cities() returns cities in the US."""
+    assert wkls.us.cities().count() > 10000
+
+
+def test_counties_at_region_level_unchanged():
+    """wkls.us.ca.counties() still returns CA counties."""
+    assert wkls.us.ca.counties().count() == 58
+
+
+def test_counties_at_root_returns_all():
+    """wkls.counties() at root lists every county worldwide."""
+    assert wkls.counties().count() > 10000
+
+
+def test_cities_at_root_returns_all():
+    """wkls.cities() at root lists every city worldwide."""
+    assert wkls.cities().count() > 100000
+
+
+def test_no_region_country_counties_and_cities():
+    """Depth-1 list methods on no-region countries (FK) still work."""
+    assert wkls.fk.counties().count() >= 0
+    assert wkls.fk.cities().count() >= 1
 
 
 # ---------- __getitem__ deprecation ----------
