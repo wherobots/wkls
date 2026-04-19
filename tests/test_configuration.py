@@ -23,6 +23,11 @@ def test_overture_releases_blocked_on_chained():
     assert not hasattr(wkls.us, "overture_releases")
 
 
+def test_overture_version_blocked_on_chained():
+    """Test that overture_version() is blocked on chained objects."""
+    assert not hasattr(wkls.us, "overture_version")
+
+
 def test_configure_valid_version():
     """Test that configure() works with a valid version."""
     releases = wkls.overture_releases()
