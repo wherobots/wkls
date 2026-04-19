@@ -154,10 +154,83 @@ SUGGEST_REGION = """
     LIMIT {limit}
 """
 
-# Common expression for normalizing city names to chainable format
+# Common expression for normalizing names to chainable format.
+# Used by city-level suggestions, dir() queries, and search().
 _CHAINABLE_NAME_EXPR = (
     "LOWER(REGEXP_REPLACE(COALESCE(name_en, name_primary), '[^a-zA-Z0-9]', '', 'g'))"
 )
+
+# --- dir() queries (for Wkl.__dir__ introspection) ---
+
+# Root dir(): ISO codes and normalized names for countries and dependencies.
+DIR_COUNTRIES = f"""
+    SELECT DISTINCT
+      LOWER(country)          AS iso,
+      {_CHAINABLE_NAME_EXPR}  AS name
+    FROM wkls
+    WHERE subtype IN ('country', 'dependency')
+"""
+
+# Country-level dir(): ISO suffixes and normalized names for one country's regions.
+DIR_REGIONS = f"""
+    SELECT DISTINCT
+      LOWER(SPLIT_PART(region, '-', 2)) AS iso,
+      {_CHAINABLE_NAME_EXPR}            AS name
+    FROM wkls
+    WHERE country = '{{country}}'
+      AND subtype = 'region'
+"""
+
+# --- search() queries ---
+# Each level matches against name_primary and name_en within its chain scope.
+
+SEARCH_COUNTRIES = """
+    SELECT DISTINCT id, country, subtype, name_primary, name_en
+    FROM wkls
+    WHERE subtype IN ('country', 'dependency')
+      AND (
+        name_primary ILIKE '%{query}%'
+        OR name_en ILIKE '%{query}%'
+      )
+    ORDER BY COALESCE(name_en, name_primary) ASC
+"""
+
+SEARCH_REGIONS = """
+    SELECT DISTINCT id, country, region, subtype, name_primary, name_en
+    FROM wkls
+    WHERE country = '{country}'
+      AND subtype = 'region'
+      AND (
+        name_primary ILIKE '%{query}%'
+        OR name_en ILIKE '%{query}%'
+      )
+    ORDER BY COALESCE(name_en, name_primary) ASC
+"""
+
+SEARCH_CITIES = """
+    SELECT DISTINCT id, country, region, subtype, name_primary, name_en
+    FROM wkls
+    WHERE country = '{country}'
+      AND region = '{region}'
+      AND subtype IN ('county', 'locality', 'localadmin')
+      AND (
+        name_primary ILIKE '%{query}%'
+        OR name_en ILIKE '%{query}%'
+      )
+    ORDER BY COALESCE(name_en, name_primary) ASC
+"""
+
+SEARCH_CITIES_NO_REGION = """
+    SELECT DISTINCT id, country, subtype, name_primary, name_en
+    FROM wkls
+    WHERE country = '{country}'
+      AND subtype IN ('county', 'locality', 'localadmin')
+      AND (
+        name_primary ILIKE '%{query}%'
+        OR name_en ILIKE '%{query}%'
+      )
+    ORDER BY COALESCE(name_en, name_primary) ASC
+"""
 
 # For city-level suggestions (Levenshtein fuzzy matching)
 # Use {region_filter} = "AND region = '{region}'" or "" for countries without regions

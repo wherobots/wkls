@@ -1,13 +1,15 @@
-"""Golden tests for Phase 1 LLM/agent usability work.
+"""Golden tests for LLM/agent usability work.
 
-Covers PEP 562 dual import, name-based country/region resolution and
-the _country_info cache, and docstring smoke coverage.
+Covers PEP 562 dual import, name-based country/region resolution,
+the _country_info cache, docstring smoke coverage, __dir__ overrides,
+.search(), and deprecation of bracket access.
 """
 
 from __future__ import annotations
 
 import os
 import types
+import warnings
 
 import pytest
 
@@ -195,3 +197,145 @@ def test_cities_via_name_chain():
     from_iso = wkls.IN.MH.cities().count()
     assert from_name == from_iso
     assert from_name >= 1
+
+
+# ---------- Stream 3: __dir__ overrides ----------
+
+
+def test_dir_root_both_forms():
+    """dir(wkls) exposes both ISO codes and names for countries."""
+    entries = dir(wkls)
+    assert "us" in entries
+    assert "unitedstates" in entries
+    assert "in" in entries
+    assert "india" in entries
+    assert "Wkl" in entries
+
+
+def test_dir_country_level_both_forms():
+    """dir(wkls.us) exposes both region ISO suffixes and region names."""
+    entries = dir(wkls.us)
+    assert "ca" in entries
+    assert "california" in entries
+    assert "or" in entries
+    assert "oregon" in entries
+    assert "regions" in entries
+
+
+def test_dir_region_level_methods_only():
+    """dir(wkls.us.ca) returns methods only — no city identifiers."""
+    entries = dir(wkls.us.ca)
+    assert set(entries) == {"cities", "counties", "geojson", "search", "wkb", "wkt"}
+
+
+def test_dir_city_level_geometry_methods_only():
+    """dir on a resolved city returns geometry-output methods."""
+    entries = dir(wkls.us.ca.sanfrancisco)
+    assert set(entries) == {"geojson", "wkb", "wkt"}
+
+
+def test_dir_cached_no_query_on_repeat(capsys):
+    """Second dir() call at the same level fires zero SQL queries."""
+    core._dir_cache.clear()
+    os.environ["WKLS_DEBUG"] = "true"
+    try:
+        dir(wkls)
+        first_out = capsys.readouterr().out
+        dir(wkls)
+        second_out = capsys.readouterr().out
+    finally:
+        del os.environ["WKLS_DEBUG"]
+
+    assert "subtype IN ('country', 'dependency')" in first_out
+    assert "SELECT DISTINCT" not in second_out
+
+
+# ---------- Stream 2: .search() (narrow scope) ----------
+
+
+def test_search_root_returns_countries():
+    """wkls.search() at root returns matching countries/dependencies."""
+    df = wkls.search("united")
+    assert df.count() >= 3  # US, UK, UAE, at minimum
+
+
+def test_search_country_returns_regions():
+    """search() at country level returns matching regions."""
+    df = wkls.us.search("new")
+    table = df.to_arrow_table()
+    names = {table.column("name_primary")[i].as_py() for i in range(table.num_rows)}
+    assert {"New Hampshire", "New Jersey", "New Mexico", "New York"}.issubset(names)
+
+
+def test_search_region_returns_cities():
+    """search() at region level returns matching cities/counties."""
+    df = wkls.us.ca.search("san fran")
+    assert df.count() >= 1
+    table = df.to_arrow_table()
+    names = [table.column("name_primary")[i].as_py() for i in range(table.num_rows)]
+    assert any("San Francisco" in n for n in names)
+
+
+def test_search_no_region_country():
+    """search() works on countries without regions (e.g., FK)."""
+    df = wkls.fk.search("stanley")
+    assert df is not None
+
+
+def test_search_too_deep_raises():
+    """search() past city level raises ValueError."""
+    with pytest.raises(ValueError, match="past city level"):
+        wkls.us.ca.sanfrancisco.search("foo")
+
+
+# ---------- __getitem__ deprecation ----------
+
+
+def test_bracket_access_emits_deprecation():
+    """Wkl()[...] still works but emits a DeprecationWarning."""
+    with pytest.warns(DeprecationWarning, match="Bracket access is deprecated"):
+        result = Wkl()["IN"]
+    assert result._df.to_arrow_table().column("country")[0].as_py() == "IN"
+
+
+def test_bracket_wildcard_emits_deprecation_pointing_to_search():
+    """Wildcard bracket access warns and suggests .search()."""
+    with pytest.warns(
+        DeprecationWarning, match=r"wildcards is deprecated; use \.search\('fran'\)"
+    ):
+        result = wkls.us.ca["%fran%"]
+    assert result.count() >= 1
+
+
+def test_chainable_bracket_emits_deprecation():
+    """ChainableDataFrame[...] also warns."""
+    with pytest.warns(DeprecationWarning, match="Bracket access is deprecated"):
+        wkls.us["CA"]
+
+
+def test_chainable_list_index_does_not_warn():
+    """DataFrame-style list indexing on ChainableDataFrame does NOT emit the warning."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        try:
+            wkls.us.ca[["id", "country"]]
+        except DeprecationWarning:
+            pytest.fail("DataFrame-style indexing should not emit DeprecationWarning")
+        except Exception:
+            pass
+
+
+# ---------- Error-hint migration ----------
+
+
+def test_error_hint_uses_search_not_brackets():
+    """Empty-result hint points at .search(), not bracket wildcards."""
+    repr_str = repr(wkls.us.ca.nonexistentcity)
+    assert "wkls.us.ca.search('nonexistentcity')" in repr_str
+    assert "['%" not in repr_str
+
+
+def test_error_hint_at_root_uses_search():
+    """Root-level empty result hints at wkls.search()."""
+    repr_str = repr(wkls.zz)
+    assert "wkls.search('zz')" in repr_str
