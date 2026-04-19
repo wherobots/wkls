@@ -192,6 +192,12 @@ sedona = _initialize_table()
 # process. Static per Overture version, safe to cache indefinitely.
 _country_info: dict[str, tuple[str, bool]] = {}
 
+# Cache for (country_iso, region_identifier) -> canonical region ISO.
+# The identifier key is lowercased raw input (ISO suffix like "mh",
+# full region ISO like "in-mh", or name like "maharashtra").
+# Canonical value is the full region ISO ("IN-MH").
+_region_info: dict[tuple[str, str], str] = {}
+
 
 def sqlescape(v: str) -> str:
     """Escape a string for safe SQL interpolation.
@@ -526,6 +532,43 @@ class Wkl:
         df_has = sedona.sql(queries.COUNTRY_HAS_REGIONS.format(country=sqlescape(iso)))
         return iso, df_has.count() > 0
 
+    @property
+    def _region_iso(self) -> str:
+        """Resolve ``self.chain[1]`` to its canonical region ISO (e.g. ``'IN-MH'``).
+
+        Lazy + cached. Handles both ISO suffixes (``'mh'`` or ``'IN-MH'``)
+        and region names (``'maharashtra'``). Returns an upper-cased naive
+        form (``'IN-MAHARASHTRA'``) if no match is found so downstream
+        queries return empty DataFrames and trigger the "Did you mean?" path.
+        """
+        raw = self.chain[1]
+        key = (self._country_iso, raw.lower())
+        if key not in _region_info:
+            _region_info[key] = self._lookup_region(raw)
+        return _region_info[key]
+
+    def _lookup_region(self, identifier: str) -> str:
+        """Resolve a region identifier to its canonical ISO (e.g. 'IN-MH').
+
+        Accepts bare suffix ('mh'), full ISO ('IN-MH'), or name ('maharashtra').
+        """
+        full_iso = (
+            identifier
+            if "-" in identifier
+            else f"{self._country_iso}-{identifier.upper()}"
+        )
+        df = sedona.sql(
+            queries.REGION_LOOKUP.format(
+                country=sqlescape(self._country_iso),
+                identifier=sqlescape(full_iso),
+                name=sqlescape(identifier),
+            )
+        )
+        table = df.to_arrow_table()
+        if table.num_rows == 0:
+            return full_iso.upper()
+        return table.column("iso")[0].as_py()
+
     def overture_version(self) -> str:
         """Return the version of the Overture Maps dataset being used.
 
@@ -607,6 +650,7 @@ class Wkl:
 
         _current_overture_version = overture_version
         _country_info.clear()
+        _region_info.clear()
         sedona.read_parquet(
             _overture_uri(overture_version),
             options={
@@ -718,8 +762,7 @@ class Wkl:
         if len(self.chain) > 2:
             query = queries.CITY
             params["country"] = country_iso
-            region_iso = country_iso + "-" + self.chain[1].upper()
-            params["region"] = region_iso
+            params["region"] = self._region_iso
             params["city"] = self.chain[2]
 
         return sedona.sql(query.format(**{k: sqlescape(v) for k, v in params.items()}))
@@ -777,10 +820,9 @@ class Wkl:
         else:
             # City-level with region (e.g., wkls.us.ca.sanfran)
             country_iso = self._country_iso
-            region = country_iso + "-" + self.chain[1].upper()
             query = queries.SUGGEST_CITY.format(
                 country=sqlescape(country_iso),
-                region_filter=f"AND region = '{sqlescape(region)}'",
+                region_filter=f"AND region = '{sqlescape(self._region_iso)}'",
                 search_term=sqlescape(search_term),
                 limit=n * 2,
             )
@@ -1068,7 +1110,6 @@ class Wkl:
             return sedona.sql(query.format(country=sqlescape(country_iso)))
 
         # len(self.chain) == 2
-        region_iso = country_iso + "-" + self.chain[1].upper()
         query = f"""
             SELECT * FROM wkls
             WHERE country = '{{country}}'
@@ -1076,7 +1117,9 @@ class Wkl:
               AND subtype IN {subtype_filter}
         """
         return sedona.sql(
-            query.format(country=sqlescape(country_iso), region=sqlescape(region_iso))
+            query.format(
+                country=sqlescape(country_iso), region=sqlescape(self._region_iso)
+            )
         )
 
     def counties(self) -> sedonadb.dataframe.DataFrame:
