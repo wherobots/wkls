@@ -110,19 +110,22 @@ filter countries from cities easily.
 `wkls` auto-detects the latest Overture Maps release. To pin a specific version:
 
 ```python
-wkls.configure(overture_version="2025-12-17.0")
-
+wkls.overture_releases()  # list currently available versions
+wkls.configure(overture_version="2026-04-15.0")
 wkls.overture_version()   # current version
-wkls.overture_releases()  # available versions
 ```
 
 Or set the `WKLS_OVERTURE_VERSION` environment variable:
 
 ```bash
-export WKLS_OVERTURE_VERSION=2025-12-17.0
+export WKLS_OVERTURE_VERSION=2026-04-15.0
 ```
 
 Priority: `configure()` > environment variable > auto-detect.
+
+Overture retains only the 2 most recent releases on S3, so long-lived
+pins eventually become invalid. Use `overture_releases()` to check
+what's currently available.
 
 ### Bracket access (deprecated)
 
