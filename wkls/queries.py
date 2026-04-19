@@ -52,6 +52,19 @@ COUNTRY_HAS_REGIONS = """
       LIMIT 1
 """
 
+REGION_LOOKUP = """
+    SELECT DISTINCT region AS iso
+    FROM wkls
+    WHERE country = '{country}'
+      AND subtype = 'region'
+      AND (
+        region ILIKE '{identifier}'
+        OR REPLACE(name_en, ' ', '') ILIKE REPLACE('{name}', ' ', '')
+        OR REPLACE(name_primary, ' ', '') ILIKE REPLACE('{name}', ' ', '')
+      )
+    LIMIT 1
+"""
+
 CITY = """
     SELECT * FROM wkls
     WHERE country ILIKE '{country}'

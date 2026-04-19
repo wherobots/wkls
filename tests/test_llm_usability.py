@@ -171,3 +171,27 @@ def test_cache_query_count(cold_caches, capsys):
         "SELECT * FROM wkls\n    WHERE country = 'US'\n      AND subtype = 'region'"
         not in second_out
     )
+
+
+# ---------- Region-name resolution regression ----------
+
+
+def test_counties_via_name_chain():
+    """wkls.india.maharashtra.counties() should match the ISO-chain result.
+
+    Regression: pre-fix, name-based chains built region filters as
+    'IN-MAHARASHTRA' (concatenating country_iso + chain[1].upper()),
+    which matched zero rows. Must equal the ISO-chain path.
+    """
+    from_name = wkls.india.maharashtra.counties().count()
+    from_iso = wkls.IN.MH.counties().count()
+    assert from_name == from_iso
+    assert from_name >= 1
+
+
+def test_cities_via_name_chain():
+    """Name-based chain also supports cities() symmetrically with ISO."""
+    from_name = wkls.india.maharashtra.cities().count()
+    from_iso = wkls.IN.MH.cities().count()
+    assert from_name == from_iso
+    assert from_name >= 1
