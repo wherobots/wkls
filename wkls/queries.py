@@ -182,24 +182,21 @@ DIR_REGIONS = f"""
 """
 
 # --- search() queries ---
-# Each level matches against name_primary and name_en within its chain scope.
+# Each level scans all entities in its chain scope (any subtype), matching
+# the query substring against name_primary and name_en.
 
-SEARCH_COUNTRIES = """
-    SELECT DISTINCT id, country, subtype, name_primary, name_en
+SEARCH_ROOT = """
+    SELECT DISTINCT id, country, region, subtype, name_primary, name_en
     FROM wkls
-    WHERE subtype IN ('country', 'dependency')
-      AND (
-        name_primary ILIKE '%{query}%'
-        OR name_en ILIKE '%{query}%'
-      )
+    WHERE name_primary ILIKE '%{query}%'
+       OR name_en ILIKE '%{query}%'
     ORDER BY COALESCE(name_en, name_primary) ASC
 """
 
-SEARCH_REGIONS = """
+SEARCH_COUNTRY = """
     SELECT DISTINCT id, country, region, subtype, name_primary, name_en
     FROM wkls
     WHERE country = '{country}'
-      AND subtype = 'region'
       AND (
         name_primary ILIKE '%{query}%'
         OR name_en ILIKE '%{query}%'
@@ -207,24 +204,11 @@ SEARCH_REGIONS = """
     ORDER BY COALESCE(name_en, name_primary) ASC
 """
 
-SEARCH_CITIES = """
+SEARCH_REGION = """
     SELECT DISTINCT id, country, region, subtype, name_primary, name_en
     FROM wkls
     WHERE country = '{country}'
       AND region = '{region}'
-      AND subtype IN ('county', 'locality', 'localadmin')
-      AND (
-        name_primary ILIKE '%{query}%'
-        OR name_en ILIKE '%{query}%'
-      )
-    ORDER BY COALESCE(name_en, name_primary) ASC
-"""
-
-SEARCH_CITIES_NO_REGION = """
-    SELECT DISTINCT id, country, subtype, name_primary, name_en
-    FROM wkls
-    WHERE country = '{country}'
-      AND subtype IN ('county', 'locality', 'localadmin')
       AND (
         name_primary ILIKE '%{query}%'
         OR name_en ILIKE '%{query}%'
