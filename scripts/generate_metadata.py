@@ -31,6 +31,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import sedonadb
 
@@ -86,6 +87,34 @@ def overture_uri(version: str) -> str:
     return f"s3://overturemaps-us-west-2/{_S3_RELEASE_PREFIX}{version}/{_S3_DIVISION_AREA_SUFFIX}"
 
 
+def _extract_en(names: dict | None) -> str | None:
+    """Pull the English name from Overture's ``names`` struct.
+
+    ``names.common`` is ``Map(key -> value)`` but pyarrow serializes it as a
+    list of ``{"key": ..., "value": ...}`` entries once converted to Python.
+    Handle both shapes defensively.
+    """
+    if not names:
+        return None
+    common = names.get("common")
+    if not common:
+        return None
+    if isinstance(common, list):
+        for entry in common:
+            if not entry:
+                continue
+            if isinstance(entry, dict):
+                k, v = entry.get("key"), entry.get("value")
+            else:
+                k, v = entry
+            if k == "en":
+                return v
+        return None
+    if isinstance(common, dict):
+        return common.get("en")
+    return None
+
+
 def generate_metadata(version: str) -> None:
     """Generate the metadata parquet file for a given Overture version.
 
@@ -113,13 +142,9 @@ def generate_metadata(version: str) -> None:
         },
     ).to_view("overture")
 
-    # Query: filter to relevant subtypes + is_land, extract metadata columns,
-    # sorted by (country, subtype, region) for optimal row group stats
+    # Query: filter to relevant subtypes + is_land, pull the names struct
+    # whole; sorted by (country, subtype, region) for optimal row group stats
     # and predicate pushdown on the most common filter patterns.
-    #
-    # Note: names.common is Map<String, List<String>>, so element_at()
-    # returns a list; [1] extracts the first (and usually only) element
-    # as a scalar string.
     print("Filtering and extracting metadata columns...")
     query = """
         SELECT
@@ -128,7 +153,7 @@ def generate_metadata(version: str) -> None:
             region,
             subtype,
             names.primary AS name_primary,
-            element_at(names.common, 'en')[1] AS name_en
+            names AS names_full
         FROM overture
         WHERE subtype IN ('country', 'region', 'locality', 'localadmin', 'county', 'dependency')
           AND is_land = true
@@ -136,9 +161,17 @@ def generate_metadata(version: str) -> None:
     """
     df = sedona.sql(query)
 
-    # Convert to PyArrow table for compression control
+    # Convert to PyArrow and extract name_en from the names.common map in Python
+    # (sedonadb lacks element_at / map access for struct-of-map types).
     print("Converting to Arrow table...")
     table = df.to_arrow_table()
+    name_en = [
+        _extract_en(table.column("names_full")[i].as_py())
+        for i in range(table.num_rows)
+    ]
+    table = table.drop_columns(["names_full"]).append_column(
+        "name_en", pa.array(name_en, pa.string())
+    )
     print(f"Rows: {table.num_rows:,}")
     print(f"Columns: {table.column_names}")
     print()

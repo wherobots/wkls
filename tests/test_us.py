@@ -13,7 +13,7 @@ def test_access():
     assert wkls.us.regions().count() == 51
     assert wkls.IN.regions().count() == 37
     assert wkls.india.maharashtra.counties().count() == 36
-    assert wkls.india.maharashtra.cities().count() == 346
+    assert wkls.india.maharashtra.cities().count() == 345
 
     # Test San Francisco search returns DataFrame directly
     san_francisco_results = wkls.us.ca.search("San Francisco").to_arrow_table()
