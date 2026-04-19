@@ -293,6 +293,55 @@ def test_search_too_deep_raises():
         wkls.us.ca.sanfrancisco.search("foo")
 
 
+# ---------- List methods: subtree-scoped regions/counties/cities ----------
+
+
+def test_regions_at_root_returns_all():
+    """wkls.regions() at root returns every region worldwide."""
+    count = wkls.regions().count()
+    # Dataset has ~3,900 regions; use a generous lower bound to stay resilient
+    # across Overture releases.
+    assert count > 3000
+
+
+def test_regions_scoped_to_country():
+    """wkls.us.regions() returns regions scoped to that country."""
+    assert wkls.us.regions().count() == 51  # 50 states + DC
+
+
+def test_counties_at_country_level():
+    """wkls.us.counties() returns counties in the US — no longer a 'must have region' error."""
+    count = wkls.us.counties().count()
+    assert count > 3000  # ~3,000 US counties
+
+
+def test_cities_at_country_level():
+    """wkls.us.cities() returns cities in the US."""
+    count = wkls.us.cities().count()
+    assert count > 10000
+
+
+def test_counties_at_region_level_unchanged():
+    """wkls.us.ca.counties() still works and returns CA counties."""
+    assert wkls.us.ca.counties().count() == 58  # California has 58 counties
+
+
+def test_counties_at_root_returns_all():
+    """wkls.counties() at root lists every county worldwide."""
+    assert wkls.counties().count() > 10000
+
+
+def test_cities_at_root_returns_all():
+    """wkls.cities() at root lists every city worldwide."""
+    assert wkls.cities().count() > 100000
+
+
+def test_no_region_country_counties_and_cities():
+    """Depth-1 list methods on no-region countries (FK) still work."""
+    assert wkls.fk.counties().count() >= 0
+    assert wkls.fk.cities().count() >= 1
+
+
 # ---------- Region-name resolution regression ----------
 
 

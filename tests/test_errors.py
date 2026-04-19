@@ -4,11 +4,10 @@ import wkls
 
 
 def test_countries_without_region():
-    with pytest.raises(ValueError) as exc_info:
-        wkls.fk.regions()
-    assert "The country 'FK' does not have regions in the dataset" in str(
-        exc_info.value
-    )
+    """Countries with no regions return an empty DataFrame, not an error."""
+    # Regions now scope to a subtree; countries like FK that have no region
+    # rows simply return zero — no longer a special error case.
+    assert wkls.fk.regions().count() == 0
 
 
 def test_empty_chain_error():
@@ -40,65 +39,32 @@ def test_countries_chaining_error():
     assert "wkls.countries()" in str(exc_info.value)
 
 
-def test_regions_chaining_errors():
-    """Test regions() validation errors."""
-    # regions() on root should fail
+def test_regions_at_region_level_returns_self():
+    """regions() at region level returns the region itself — the only region row in that scope."""
+    df = wkls.us.ca.regions().to_arrow_table()
+    assert df.num_rows == 1
+    assert df.column("region")[0].as_py() == "US-CA"
+
+
+def test_regions_past_region_level_raises():
+    """regions() past region level raises (depth 3 has no subtree)."""
     with pytest.raises(ValueError) as exc_info:
-        wkls.regions()
-    assert "regions() requires exactly one level of chaining" in str(exc_info.value)
-    assert "wkls.<country>.regions()" in str(exc_info.value)
-
-    # regions() on country.region should fail
-    with pytest.raises(ValueError) as exc_info:
-        wkls.us.ca.regions()
-    assert "regions() requires exactly one level of chaining" in str(exc_info.value)
+        wkls.us.ca.sanfrancisco.regions()
+    assert "past region level" in str(exc_info.value)
 
 
-def test_counties_chaining_errors():
-    """Test counties() validation errors."""
-    # counties() on root should fail
-    with pytest.raises(ValueError) as exc_info:
-        wkls.counties()
-    assert "counties() requires exactly one or two levels of chaining" in str(
-        exc_info.value
-    )
-    assert "wkls.<country>.<region>.counties()" in str(exc_info.value)
-
-    # counties() on country only should fail
-    with pytest.raises(ValueError) as exc_info:
-        wkls.us.counties()
-    assert "counties() cannot be called on a country alone" in str(exc_info.value)
-    assert "wkls.<country>.<region>.counties()" in str(exc_info.value)
-
-    # counties() on country.region.city should fail
+def test_counties_past_region_level_raises():
+    """counties() past region level raises (depth 3 has no subtree)."""
     with pytest.raises(ValueError) as exc_info:
         wkls.us.ca.sanfrancisco.counties()
-    assert "counties() requires exactly one or two levels of chaining" in str(
-        exc_info.value
-    )
+    assert "past region level" in str(exc_info.value)
 
 
-def test_cities_chaining_errors():
-    """Test cities() validation errors."""
-    # cities() on root should fail
-    with pytest.raises(ValueError) as exc_info:
-        wkls.cities()
-    assert "cities() requires exactly one or two levels of chaining" in str(
-        exc_info.value
-    )
-    assert "wkls.<country>.<region>.cities()" in str(exc_info.value)
-
-    # cities() on country only should fail
-    with pytest.raises(ValueError) as exc_info:
-        wkls.us.cities()
-    assert "cities() cannot be called on a country alone" in str(exc_info.value)
-
-    # cities() on country.region.city should fail
+def test_cities_past_region_level_raises():
+    """cities() past region level raises (depth 3 has no subtree)."""
     with pytest.raises(ValueError) as exc_info:
         wkls.us.ca.sanfrancisco.cities()
-    assert "cities() requires exactly one or two levels of chaining" in str(
-        exc_info.value
-    )
+    assert "past region level" in str(exc_info.value)
 
 
 def test_subtypes_chaining_error():
@@ -297,11 +263,9 @@ def test_chainable_dataframe_error_propagation():
         us_data.countries()
     assert "countries() can only be called on the root object" in str(exc_info.value)
 
-    # regions() should fail on chained data (more than 1 level)
+    # regions() on a region-level chain returns the region itself.
     ca_data = wkls.us.ca
-    with pytest.raises(ValueError) as exc_info:
-        ca_data.regions()
-    assert "regions() requires exactly one level of chaining" in str(exc_info.value)
+    assert ca_data.regions().count() == 1
 
 
 def test_version_attribute():
@@ -323,9 +287,10 @@ def test_dunder_attributes_raise_attribute_error():
 if __name__ == "__main__":
     test_empty_chain_error()
     test_countries_chaining_error()
-    test_regions_chaining_errors()
-    test_counties_chaining_errors()
-    test_cities_chaining_errors()
+    test_regions_at_region_level_returns_self()
+    test_regions_past_region_level_raises()
+    test_counties_past_region_level_raises()
+    test_cities_past_region_level_raises()
     test_subtypes_chaining_error()
     test_too_many_chained_attributes()
     test_nonexistent_location_errors()

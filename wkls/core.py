@@ -1176,75 +1176,58 @@ class Wkl:
         return sedona.sql(query)
 
     def regions(self) -> sedonadb.dataframe.DataFrame:
-        """Get regions for the current country.
+        """List regions in the current chain scope.
 
-        Must be called on a single-level chain (e.g., `wkls.us.regions()`).
+        Scope follows chain depth:
+            - ``wkls.regions()``     — every region worldwide
+            - ``wkls.us.regions()``  — every region in the US
 
         Returns:
-            DataFrame containing all region records for the country.
+            DataFrame of region rows.
 
         Raises:
-            ValueError: If called at wrong chain level or country has no regions.
+            ValueError: If called past country level (no regions below regions).
         """
-        if not self.chain or len(self.chain) > 1:
-            raise ValueError(
-                "regions() requires exactly one level of chaining. "
-                "Use wkls.<country>.regions() to get regions for a country."
-            )
+        return self._list_subtype("('region')", "regions")
 
-        country_iso = self._country_iso
-
-        if not self._has_region:
-            raise ValueError(
-                f"The country '{country_iso}' does not have regions in the dataset. "
-                f"Please directly call wkls['{country_iso.lower()}'].counties() or "
-                f"wkls['{country_iso.lower()}'].cities() to access its counties or cities."
-            )
-
-        query = """
-            SELECT * FROM wkls
-            WHERE country = '{country}'
-                AND subtype = 'region'
-        """
-        return sedona.sql(query.format(country=sqlescape(country_iso)))
-
-    def _get_subdivisions(
+    def _list_subtype(
         self, subtype_filter: str, method_name: str
     ) -> sedonadb.dataframe.DataFrame:
-        """Helper for counties() and cities() methods.
+        """List rows of the given subtype within the current chain scope.
 
         Args:
-            subtype_filter: SQL subtype filter (e.g., "'county'" or "('locality', 'localadmin')").
-            method_name: Name of the calling method for error messages.
+            subtype_filter: SQL subtype filter, e.g. ``"('county')"`` or
+                ``"('locality', 'localadmin')"``.
+            method_name: Calling method name for error messages.
 
         Returns:
-            DataFrame containing matching subdivision records.
+            DataFrame containing matching rows.
 
         Raises:
-            ValueError: If called at wrong chain level.
+            ValueError: If called past region level (chain depth > 2).
         """
-        if not self.chain or len(self.chain) > 2:
+        depth = len(self.chain)
+        if depth > 2:
             raise ValueError(
-                f"{method_name}() requires exactly one or two levels of chaining. "
-                f"Use wkls.<country>.<region>.{method_name}() to get {method_name} for a region."
+                f"{method_name}() cannot be called past region level "
+                f"(chain has {depth} elements; max list depth is 2)."
             )
 
-        country_iso = self._country_iso
+        if depth == 0:
+            query = f"SELECT * FROM wkls WHERE subtype IN {subtype_filter}"
+            return sedona.sql(query)
 
-        if len(self.chain) == 1:
-            if self._has_region:
-                raise ValueError(
-                    f"{method_name}() cannot be called on a country alone. "
-                    f"Use wkls.<country>.<region>.{method_name}() to get {method_name} for a region."
-                )
+        if depth == 1 or not self._has_region:
+            # Country-scoped: depth 1, or depth 2 on a no-region country
+            # (which addresses a specific city, so scope collapses to country).
             query = f"""
                 SELECT * FROM wkls
                 WHERE country = '{{country}}'
                   AND subtype IN {subtype_filter}
             """
-            return sedona.sql(query.format(country=sqlescape(country_iso)))
+            return sedona.sql(query.format(country=sqlescape(self._country_iso)))
 
-        # len(self.chain) == 2
+        # depth == 2 with regions: region-scoped
         query = f"""
             SELECT * FROM wkls
             WHERE country = '{{country}}'
@@ -1253,37 +1236,42 @@ class Wkl:
         """
         return sedona.sql(
             query.format(
-                country=sqlescape(country_iso), region=sqlescape(self._region_iso)
+                country=sqlescape(self._country_iso),
+                region=sqlescape(self._region_iso),
             )
         )
 
     def counties(self) -> sedonadb.dataframe.DataFrame:
-        """Get counties for the current region.
+        """List counties in the current chain scope.
 
-        Must be called on a two-level chain (e.g., `wkls.us.ca.counties()`),
-        or single-level for countries without regions.
+        Scope follows chain depth:
+            - ``wkls.counties()``         — every county worldwide
+            - ``wkls.us.counties()``      — every county in the US
+            - ``wkls.us.ca.counties()``   — every county in California
 
         Returns:
-            DataFrame containing all county records for the region.
+            DataFrame of county rows.
 
         Raises:
-            ValueError: If called at wrong chain level.
+            ValueError: If called past region level.
         """
-        return self._get_subdivisions("('county')", "counties")
+        return self._list_subtype("('county')", "counties")
 
     def cities(self) -> sedonadb.dataframe.DataFrame:
-        """Get cities for the current region.
+        """List cities (localities and localadmins) in the current chain scope.
 
-        Must be called on a two-level chain (e.g., `wkls.us.ca.cities()`),
-        or single-level for countries without regions.
+        Scope follows chain depth:
+            - ``wkls.cities()``         — every city worldwide
+            - ``wkls.us.cities()``      — every city in the US
+            - ``wkls.us.ca.cities()``   — every city in California
 
         Returns:
-            DataFrame containing all city records for the region.
+            DataFrame of city rows.
 
         Raises:
-            ValueError: If called at wrong chain level.
+            ValueError: If called past region level.
         """
-        return self._get_subdivisions("('locality', 'localadmin')", "cities")
+        return self._list_subtype("('locality', 'localadmin')", "cities")
 
     def subtypes(self) -> sedonadb.dataframe.DataFrame:
         """Get all distinct division subtypes in the dataset.
