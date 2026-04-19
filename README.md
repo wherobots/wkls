@@ -15,7 +15,8 @@ wkls.us.ca.sanfrancisco.wkt()
 # "MULTIPOLYGON (((-122.5279985 37.8155806...)))"
 ```
 
-- Chainable attribute access to countries, states, counties, and cities
+- Chainable attribute access by ISO code *or* English name (`wkls.us.ca.sanfrancisco`, `wkls.india.maharashtra`)
+- `.search("query")` at any chain level — scoped to the current subtree
 - Precise geometries from [Overture Maps Foundation](https://overturemaps.org/) — no bounding boxes, no shapefiles
 - Outputs boundaries in WKT, WKB, or GeoJSON
 - Support for HexWKB and SVG planned
@@ -69,22 +70,40 @@ wkls.de.geojson()  # GeoJSON string
 
 ### Exploring the dataset
 
+Listing methods scope to the current chain, all the way up to the dataset root:
+
 ```python
 wkls.countries()       # all countries
 wkls.dependencies()    # all dependencies
+wkls.regions()         # every region worldwide
+wkls.counties()        # every county worldwide
+wkls.cities()          # every city worldwide
+
 wkls.us.regions()      # regions in the US
+wkls.us.counties()     # every county in the US
+wkls.us.cities()       # every city in the US
+
 wkls.us.ca.counties()  # counties in California
 wkls.us.ca.cities()    # cities in California
-wkls.fk.cities()       # countries without regions work too
 ```
 
-### Wildcard search
+`dir(wkls)` and `dir(wkls.us)` list every attribute that resolves at that
+level — both ISO codes and English names — for interactive exploration
+and tab completion.
 
-Use `%` for pattern matching when you're not sure of the exact name:
+### Search
+
+`.search(query)` finds every row whose name contains the query substring.
+Scope narrows with chain depth:
 
 ```python
-wkls.us.ca["%francis%"]  # matches "San Francisco"
+wkls.search("san francisco")        # anywhere in the dataset
+wkls.us.search("san francisco")     # anywhere in the US
+wkls.us.ca.search("san francisco")  # anywhere in California
 ```
+
+Results come back as a DataFrame with a `subtype` column, so callers can
+filter countries from cities easily.
 
 ### Pinning an Overture version
 
@@ -105,19 +124,18 @@ export WKLS_OVERTURE_VERSION=2025-12-17.0
 
 Priority: `configure()` > environment variable > auto-detect.
 
-### Bracket access
+### Bracket access (deprecated)
 
-Most keyword/numeric collisions are resolved by name access (`wkls.austria.burgenland`
-instead of `wkls.at["1"]`). Bracket syntax is still available on chained objects for
-the rare cases where attribute access collides with a DataFrame method:
+Bracket access (`wkls.us["ne"]`, `wkls.us.ca["%fran%"]`) still works but
+emits a `DeprecationWarning` pointing at the modern replacement:
 
-```python
-wkls.us["ne"].wkt()     # Nebraska (wkls.us.ne would call DataFrame.ne)
-wkls.us.ca["%fran%"]    # wildcard search
-```
+- Keyword / numeric collisions → use the English name:
+  `wkls.us.nebraska`, `wkls.austria.burgenland`.
+- Wildcard search → use `.search()`:
+  `wkls.us.ca.search("fran")`.
 
-Bracket access at the module root (`wkls["..."]`) is not supported — real Python
-modules aren't subscriptable. Use dot access or `Wkl()["..."]` instead.
+Bracket access at the module root (`wkls["..."]`) is not supported — real
+Python modules aren't subscriptable. Use dot access or `Wkl()["..."]`.
 
 ## How it works
 
