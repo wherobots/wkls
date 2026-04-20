@@ -164,6 +164,20 @@ def test_search_too_deep_raises():
         wkls.us.ca.sanfrancisco.search("foo")
 
 
+def test_search_normalizes_query_to_dot_access_form():
+    """search() matches the same form users type in dot-access.
+
+    ``search("sanfrancisco")`` and ``search("san francisco")`` should
+    return the same rows — both sides of the match are normalized
+    (lowercased + non-alphanumerics stripped). Regression: prior to
+    normalization, the spaceless form returned an empty DataFrame.
+    """
+    spaceless = wkls.us.ca.search("sanfrancisco").count()
+    spaced = wkls.us.ca.search("san francisco").count()
+    assert spaceless == spaced
+    assert spaceless >= 1  # at least the SF locality
+
+
 # ---------- Subtree-scoped list methods ----------
 
 

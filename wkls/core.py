@@ -1555,8 +1555,11 @@ class Wkl:
         - ``wkls.us.ca.search(q)``  — everything under California
 
         Args:
-            query: Search string. Matched against ``name_primary`` and
-                ``name_en`` with ``ILIKE '%query%'``.
+            query: Search string. Matched against normalized forms of
+                ``name_primary`` and ``name_en`` — both sides are
+                lowercased and stripped of non-alphanumerics before
+                comparison, so ``"san francisco"``, ``"San Francisco"``,
+                and ``"sanfrancisco"`` all match the same rows.
 
         Returns:
             A result-mode ``Wkl`` of matching rows (id, country, region,
@@ -1578,7 +1581,9 @@ class Wkl:
                 f"(chain has {depth} elements; max searchable depth is 2)."
             )
 
-        escaped_query = sqlescape(query)
+        # Normalize to the dot-access form so ``search("sanfrancisco")``
+        # and ``search("San Francisco")`` both match "San Francisco".
+        escaped_query = sqlescape(_normalize_name(query))
 
         if depth == 0:
             sql = queries.SEARCH_ROOT.format(query=escaped_query)

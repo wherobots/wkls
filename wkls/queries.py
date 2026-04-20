@@ -204,33 +204,39 @@ DIR_REGIONS = f"""
 # Each level scans all entities in its chain scope (any subtype), matching
 # the query substring against name_primary and name_en.
 
-SEARCH_ROOT = """
+# Normalized-name match: lowercase + strip non-alphanumerics on both sides
+# so users can search with the same form they'd type in dot-access
+# (e.g. ``search("sanfrancisco")`` finds "San Francisco"). The query is
+# pre-normalized in Python before substitution.
+_SEARCH_NAME_MATCH = (
+    "LOWER(REGEXP_REPLACE(name_primary, '[^a-zA-Z0-9]', '', 'g')) LIKE '%{query}%'\n"
+    "      OR LOWER(REGEXP_REPLACE(name_en, '[^a-zA-Z0-9]', '', 'g')) LIKE '%{query}%'"
+)
+
+SEARCH_ROOT = f"""
     SELECT DISTINCT id, country, region, subtype, name_primary, name_en, parent_id
     FROM wkls
-    WHERE name_primary ILIKE '%{query}%'
-       OR name_en ILIKE '%{query}%'
+    WHERE {_SEARCH_NAME_MATCH}
     ORDER BY COALESCE(name_en, name_primary) ASC
 """
 
-SEARCH_COUNTRY = """
+SEARCH_COUNTRY = f"""
     SELECT DISTINCT id, country, region, subtype, name_primary, name_en, parent_id
     FROM wkls
-    WHERE country = '{country}'
+    WHERE country = '{{country}}'
       AND (
-        name_primary ILIKE '%{query}%'
-        OR name_en ILIKE '%{query}%'
+        {_SEARCH_NAME_MATCH}
       )
     ORDER BY COALESCE(name_en, name_primary) ASC
 """
 
-SEARCH_REGION = """
+SEARCH_REGION = f"""
     SELECT DISTINCT id, country, region, subtype, name_primary, name_en, parent_id
     FROM wkls
-    WHERE country = '{country}'
-      AND region = '{region}'
+    WHERE country = '{{country}}'
+      AND region = '{{region}}'
       AND (
-        name_primary ILIKE '%{query}%'
-        OR name_en ILIKE '%{query}%'
+        {_SEARCH_NAME_MATCH}
       )
     ORDER BY COALESCE(name_en, name_primary) ASC
 """
