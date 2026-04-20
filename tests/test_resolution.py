@@ -239,11 +239,16 @@ def test_empty_chain_error():
     assert "wkls.<country>" in str(exc_info.value)
 
 
+def test_chain_depth_4_is_parent_narrower():
+    """Chain depth 4 narrows by parent_id."""
+    # Adams County in PA has a Franklin township — single match.
+    assert wkls.us.pa.adamscounty.franklin._df.count() == 1
+
+
 def test_too_many_chained_attributes():
-    """Chain past level 3 raises."""
-    with pytest.raises(ValueError) as exc_info:
-        wkls.us.ca.sanfrancisco.somethingelse  # noqa: B018
-    assert "Too many chained attributes (max = 3)" in str(exc_info.value)
+    """Chain past level 4 raises."""
+    with pytest.raises(ValueError, match="Chain too deep"):
+        wkls.us.ca.sanfrancisco.mission.somethingelse  # noqa: B018
 
 
 def test_nonexistent_location_returns_empty():

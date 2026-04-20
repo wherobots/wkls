@@ -47,8 +47,9 @@ def test_return_types_uniform():
 
 def test_geometry_on_single_row_search_result():
     """.wkt() works on a search result that resolves to one row."""
-    # "san francisco" within US-CA matches one locality, so single-row.
-    wkt = wkls.us.ca.search("san francisco").wkt()
+    # "oakland" within US-CA matches exactly one locality — unambiguous,
+    # so geometry resolves without raising AmbiguousLocationError.
+    wkt = wkls.us.ca.search("oakland").wkt()
     assert isinstance(wkt, str)
     assert len(wkt) > 0
 
