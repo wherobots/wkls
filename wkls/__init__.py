@@ -16,9 +16,9 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
-from .core import ChainableDataFrame, Wkl
+from .core import Wkl
 
-__all__ = ["ChainableDataFrame", "Wkl"]
+__all__ = ["Wkl"]
 
 try:
     __version__ = version("wkls")
@@ -36,9 +36,21 @@ def _get_instance() -> Wkl:
     return _instance
 
 
+# Names removed in 1.2.0 — surface explicit migration messages instead of
+# silently delegating to chain-drill and producing empty Wkl results.
+_REMOVED: dict[str, str] = {
+    "ChainableDataFrame": (
+        "ChainableDataFrame was removed in wkls 1.2.0; Wkl is now the sole "
+        "public type. Replace any `ChainableDataFrame` references with `Wkl`."
+    ),
+}
+
+
 def __getattr__(name: str) -> Any:
     if name.startswith("_"):
         raise AttributeError(f"module 'wkls' has no attribute {name!r}")
+    if name in _REMOVED:
+        raise AttributeError(_REMOVED[name])
     return getattr(_get_instance(), name)
 
 
