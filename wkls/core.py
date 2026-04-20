@@ -1435,14 +1435,10 @@ class Wkl:
             A result-mode ``Wkl`` wrapping the matching rows.
 
         Raises:
-            ValueError: If called past region level (chain depth > 2).
+            ValueError: If called on a chain that resolves to more than
+                one row past region level (can't scope by a single parent).
         """
         depth = len(self.chain)
-        if depth > 2:
-            raise ValueError(
-                f"{method_name}() cannot be called past region level "
-                f"(chain has {depth} elements; max list depth is 2)."
-            )
 
         if depth == 0:
             query = f"SELECT * FROM wkls WHERE subtype IN {subtype_filter}"
@@ -1460,21 +1456,40 @@ class Wkl:
                 df=sedona.sql(query.format(country=sqlescape(self._country_iso)))
             )
 
-        # depth == 2 with regions: region-scoped
-        query = f"""
-            SELECT * FROM wkls
-            WHERE country = '{{country}}'
-              AND region = '{{region}}'
-              AND subtype IN {subtype_filter}
-        """
-        return Wkl(
-            df=sedona.sql(
-                query.format(
-                    country=sqlescape(self._country_iso),
-                    region=sqlescape(self._region_iso),
+        if depth == 2:
+            # Region-scoped.
+            query = f"""
+                SELECT * FROM wkls
+                WHERE country = '{{country}}'
+                  AND region = '{{region}}'
+                  AND subtype IN {subtype_filter}
+            """
+            return Wkl(
+                df=sedona.sql(
+                    query.format(
+                        country=sqlescape(self._country_iso),
+                        region=sqlescape(self._region_iso),
+                    )
                 )
             )
-        )
+
+        # Depth >= 3: parent-scoped. The chain must resolve to a single
+        # row; we list its direct children by parent_id.
+        df = self.resolve()
+        row_count = df.count()
+        if row_count != 1:
+            raise ValueError(
+                f"{method_name}() past region level requires the chain to "
+                f"resolve to a single row; '{'.'.join(self.chain)}' has "
+                f"{row_count} rows."
+            )
+        row_id = df.head(1).to_arrow_table().column("id")[0].as_py()
+        query = f"""
+            SELECT * FROM wkls
+            WHERE parent_id = '{{parent_id}}'
+              AND subtype IN {subtype_filter}
+        """
+        return Wkl(df=sedona.sql(query.format(parent_id=sqlescape(row_id))))
 
     def counties(self) -> Wkl:
         """List counties in the current chain scope.

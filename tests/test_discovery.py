@@ -228,22 +228,29 @@ def test_regions_at_region_level_returns_self():
     assert df.column("region")[0].as_py() == "US-CA"
 
 
-def test_regions_past_region_level_raises():
-    """regions() past region level raises (depth 3 has no subtree)."""
-    with pytest.raises(ValueError, match="past region level"):
-        wkls.us.ca.sanfrancisco.regions()
+def test_regions_past_region_level_returns_empty():
+    """regions() past region level cascades via parent_id; a locality has no sub-regions."""
+    assert wkls.us.ca.sanfrancisco.regions().count() == 0
 
 
-def test_counties_past_region_level_raises():
-    """counties() past region level raises (depth 3 has no subtree)."""
-    with pytest.raises(ValueError, match="past region level"):
-        wkls.us.ca.sanfrancisco.counties()
+def test_counties_past_region_level_returns_empty():
+    """counties() past region level cascades via parent_id; a locality has no sub-counties."""
+    assert wkls.us.ca.sanfrancisco.counties().count() == 0
 
 
-def test_cities_past_region_level_raises():
-    """cities() past region level raises (depth 3 has no subtree)."""
-    with pytest.raises(ValueError, match="past region level"):
-        wkls.us.ca.sanfrancisco.cities()
+def test_cities_at_county_level_returns_children():
+    """cities() on a county returns its direct locality/localadmin children via parent_id."""
+    cities = wkls.us.ca.sandiegocounty.cities()
+    assert cities.count() >= 15  # San Diego County has ~19 localities
+    table = cities.to_arrow_table()
+    names = {table.column("name_primary")[i].as_py() for i in range(table.num_rows)}
+    assert {"San Diego", "Chula Vista", "Oceanside"}.issubset(names)
+
+
+def test_cities_past_region_level_on_ambiguous_raises():
+    """cities() past region level requires a single-row chain scope."""
+    with pytest.raises(ValueError, match="single row"):
+        wkls.us.pa.franklin.cities()
 
 
 # ---------- Root-only dataset methods ----------
