@@ -102,8 +102,10 @@ wkls.us.search("san francisco")     # anywhere in the US
 wkls.us.ca.search("san francisco")  # anywhere in California
 ```
 
-Results come back as a DataFrame with a `subtype` column, so callers can
-filter countries from cities easily.
+Results come back as a `Wkl` — the same type every other access returns.
+Call `.count()`, `.to_arrow_table()`, etc. for inspection, or `.wkt()` /
+`.wkb()` / `.geojson()` on a single-row result to fetch geometry in one
+step.
 
 ### Pinning an Overture version
 
