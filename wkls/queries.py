@@ -205,7 +205,7 @@ DIR_REGIONS = f"""
 # the query substring against name_primary and name_en.
 
 SEARCH_ROOT = """
-    SELECT DISTINCT id, country, region, subtype, name_primary, name_en
+    SELECT DISTINCT id, country, region, subtype, name_primary, name_en, parent_id
     FROM wkls
     WHERE name_primary ILIKE '%{query}%'
        OR name_en ILIKE '%{query}%'
@@ -213,7 +213,7 @@ SEARCH_ROOT = """
 """
 
 SEARCH_COUNTRY = """
-    SELECT DISTINCT id, country, region, subtype, name_primary, name_en
+    SELECT DISTINCT id, country, region, subtype, name_primary, name_en, parent_id
     FROM wkls
     WHERE country = '{country}'
       AND (
@@ -224,7 +224,7 @@ SEARCH_COUNTRY = """
 """
 
 SEARCH_REGION = """
-    SELECT DISTINCT id, country, region, subtype, name_primary, name_en
+    SELECT DISTINCT id, country, region, subtype, name_primary, name_en, parent_id
     FROM wkls
     WHERE country = '{country}'
       AND region = '{region}'

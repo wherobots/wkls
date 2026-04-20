@@ -145,6 +145,18 @@ def test_path_multi_row_raises():
         wkls.search("united").path  # noqa: B018
 
 
+def test_path_after_subtype_modifier_on_search():
+    """.path on a filtered search result walks parent_id correctly.
+
+    Regression: SEARCH_* templates used to project an explicit column list
+    that omitted parent_id, so the walk loop bailed after one iteration
+    and the returned path contained only the leaf segment.
+    """
+    sd = wkls.us.ca.search("san d").county
+    assert sd._df.count() == 1
+    assert sd.path == "wkls.us.ca.sandiegocounty"
+
+
 # ---------- Chain depth 4 (parent narrower) ----------
 
 
