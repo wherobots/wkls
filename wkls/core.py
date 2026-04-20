@@ -261,11 +261,15 @@ _DIR_ROOT_METHODS = frozenset(
         "subtypes",
     }
 )
+# Chain-mode dir surfaces at each depth. ``path`` is available on every
+# resolved single-row Wkl from depth 1 onward; ``parent`` is available
+# from depth 2 onward (countries raise because they're at the top).
 _DIR_COUNTRY_METHODS = frozenset(
     {
         "cities",
         "counties",
         "geojson",
+        "path",
         "regions",
         "search",
         "wkb",
@@ -277,20 +281,19 @@ _DIR_REGION_METHODS = frozenset(
         "cities",
         "counties",
         "geojson",
+        "parent",
+        "path",
         "search",
         "wkb",
         "wkt",
     }
 )
-_DIR_CITY_METHODS = frozenset({"geojson", "wkb", "wkt"})
+_DIR_CITY_METHODS = frozenset({"geojson", "parent", "path", "wkb", "wkt"})
 
 # Result-mode: DataFrame passthroughs that make sense to surface on a
 # multi-row Wkl. Keep this to the common inspection verbs — sedona's
 # DataFrame has a wider surface but listing everything would be noise.
 _DIR_DATAFRAME_METHODS = frozenset({"count", "head", "limit", "show", "to_arrow_table"})
-
-# Result-mode: navigation properties available on a single-row Wkl.
-_DIR_SINGLE_ROW_NAV = frozenset({"parent", "path"})
 
 
 def _normalize_name(name: str | None) -> str:
@@ -967,7 +970,7 @@ class Wkl:
         if row_count == 0:
             return base
         if row_count == 1:
-            return base | _DIR_CITY_METHODS | _DIR_SINGLE_ROW_NAV
+            return base | _DIR_CITY_METHODS
         # Multi-row: surface subtype modifiers actually present in
         # the result so callers can narrow ambiguity.
         self._df.to_view("_wkls_dir_subtypes", overwrite=True)

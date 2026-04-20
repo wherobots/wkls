@@ -76,13 +76,29 @@ def test_dir_country_level_both_forms():
 def test_dir_region_level_methods_only():
     """dir(wkls.us.ca) returns methods only — no city identifiers."""
     entries = dir(wkls.us.ca)
-    assert set(entries) == {"cities", "counties", "geojson", "search", "wkb", "wkt"}
+    assert set(entries) == {
+        "cities",
+        "counties",
+        "geojson",
+        "parent",
+        "path",
+        "search",
+        "wkb",
+        "wkt",
+    }
 
 
-def test_dir_city_level_geometry_methods_only():
-    """dir on a resolved city returns geometry-output methods."""
+def test_dir_city_level_exposes_geometry_and_navigation():
+    """dir on a resolved city returns geometry methods + hierarchy navigation."""
     entries = dir(wkls.us.ca.sanfrancisco)
-    assert set(entries) == {"geojson", "wkb", "wkt"}
+    assert set(entries) == {"geojson", "parent", "path", "wkb", "wkt"}
+
+
+def test_dir_country_level_has_path_but_not_parent():
+    """Countries are at the top of the hierarchy — .parent raises, .path doesn't."""
+    entries = set(dir(wkls.us))
+    assert "path" in entries
+    assert "parent" not in entries
 
 
 def test_dir_result_mode_multi_row_exposes_narrowers():
