@@ -65,6 +65,25 @@ REGION_LOOKUP = """
     LIMIT 1
 """
 
+ROW_BY_ID = """
+    SELECT id, country, region, subtype, name_primary, name_en, parent_id
+    FROM wkls
+    WHERE id = '{row_id}'
+    LIMIT 1
+"""
+
+# Children of a resolved row (4-level chain parent narrower).
+# Matches by parent_id AND location name. parent_id self-references
+# another row's ``id`` within the bundled metadata.
+CHILDREN_BY_PARENT = """
+    SELECT * FROM wkls
+    WHERE parent_id = '{parent_id}'
+      AND (
+        REPLACE(name_primary, ' ', '') ILIKE REPLACE('{name}', ' ', '')
+        OR REPLACE(name_en, ' ', '') ILIKE REPLACE('{name}', ' ', '')
+      )
+"""
+
 CITY = """
     SELECT * FROM wkls
     WHERE country ILIKE '{country}'

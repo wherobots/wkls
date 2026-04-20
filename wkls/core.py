@@ -31,7 +31,21 @@ import sqlescapy
 
 from . import data, queries
 
-__all__ = ["Wkl"]
+__all__ = ["AmbiguousLocationError", "Wkl"]
+
+
+class AmbiguousLocationError(ValueError):
+    """Raised when a geometry method is called on a ``Wkl`` holding >1 row.
+
+    Subclass of ``ValueError`` so existing ``except ValueError:`` blocks
+    keep catching it. The message lists every candidate with its subtype,
+    parent name, and id, and points at the dot-based disambiguation paths:
+
+    - subtype modifier: ``wkls.us.ca.mission.locality``
+    - 4-level parent narrower: ``wkls.us.pa.adamscounty.franklin``
+    - exact pick: ``wkls.by_id('<uuid>')``
+    """
+
 
 # S3 bucket URL for listing Overture Maps releases (HTTP avoids SSL cert
 # issues on macOS system Python installs that lack certifi/root certs)
@@ -204,6 +218,11 @@ _region_info: dict[tuple[str, str], str] = {}
 # Values are sorted lists of ISO codes + normalized names.
 _dir_cache: dict[tuple[str, ...], list[str]] = {}
 
+# Cache for row-by-id lookups. Keyed by Overture UUID; value is a dict of
+# id, country, region, subtype, name_primary, name_en, parent_division_id.
+# Populated by Wkl.by_id() and Wkl.parent.
+_row_info: dict[str, dict[str, object]] = {}
+
 
 def sqlescape(v: str) -> str:
     """Escape a string for safe SQL interpolation.
@@ -220,10 +239,19 @@ def sqlescape(v: str) -> str:
     return sqlescapy.sqlescape(v).replace("\\%", "%")
 
 
+# Closed vocabulary of Overture subtypes that wkls bundles. When used
+# as an attribute access (e.g. `wkls.us.ca.mission.locality`) the name
+# filters the current result set by subtype — "subtype modifier." Kept
+# as a frozenset so the check in __getattr__ is O(1).
+_SUBTYPE_NAMES = frozenset(
+    {"country", "dependency", "region", "county", "locality", "localadmin"}
+)
+
 # Methods surfaced by __dir__ at each chain depth.
 _DIR_ROOT_METHODS = frozenset(
     {
         "Wkl",
+        "by_id",
         "configure",
         "countries",
         "dependencies",
@@ -255,6 +283,35 @@ _DIR_REGION_METHODS = frozenset(
     }
 )
 _DIR_CITY_METHODS = frozenset({"geojson", "wkb", "wkt"})
+
+
+def _normalize_name(name: str | None) -> str:
+    """Lowercase + strip non-alphanumerics. Matches ``__getattr__`` input form."""
+    if not name:
+        return ""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def _chain_attr_for_row(row: dict[str, object]) -> str:
+    """Return the canonical chain attribute for a bundle row.
+
+    - country / dependency → lowercased ISO code (``us``, ``pr``)
+    - region              → lowercased region suffix (``ca`` for ``US-CA``)
+    - anything else       → normalized name_en / name_primary
+    """
+    subtype = row.get("subtype")
+    country = row.get("country") or ""
+    region = row.get("region") or ""
+    if subtype in ("country", "dependency"):
+        return country.lower()
+    if subtype == "region":
+        # region column is "US-CA"; return "ca"
+        if "-" in region:
+            return region.split("-", 1)[1].lower()
+        return region.lower()
+    # county / locality / localadmin: normalized name
+    name = row.get("name_en") or row.get("name_primary") or ""
+    return _normalize_name(str(name))
 
 
 def _build_error_hint(chain: list[str], suggestions: list[str]) -> str:
@@ -374,6 +431,7 @@ class Wkl:
         self,
         chain: list[str] | None = None,
         df: sedonadb.dataframe.DataFrame | None = None,
+        _parent_id: str | None = None,
     ) -> None:
         """Initialize a Wkl instance.
 
@@ -395,9 +453,14 @@ class Wkl:
             df: Pre-resolved DataFrame to cache on this instance.
                 Used by listing/search methods to hand the caller a
                 ready-to-query ``Wkl`` without a chain.
+            _parent_id: Internal. At chain depth 4 (parent narrower)
+                this is the resolved depth-3 row's ``id``; it lets
+                ``resolve()`` filter by ``parent_id = ?``. Private
+                because users never supply it directly.
         """
         self.chain: list[str] = chain or []
         self._df: sedonadb.dataframe.DataFrame | None = df
+        self._parent_id: str | None = _parent_id
         self._country_iso: str = ""
         if not self.chain:
             return
@@ -472,6 +535,194 @@ class Wkl:
         if table.num_rows == 0:
             return full_iso.upper()
         return table.column("iso")[0].as_py()
+
+    def _ambiguity_message(self, df: sedonadb.dataframe.DataFrame) -> str:
+        """Format an ``AmbiguousLocationError`` message for a multi-row result.
+
+        Lists each candidate with subtype, parent name (via
+        ``parent_division_id``), and id. Caps at 10 rows to keep the
+        message digestible on wide result sets.
+        """
+        where = ".".join(self.chain) if self.chain else "this query"
+        table = df.to_arrow_table()
+        n = table.num_rows
+        lines = [f"{n} matches for {where}. Candidates:"]
+        sample = min(n, 10)
+        for i in range(sample):
+            subtype = table.column("subtype")[i].as_py() or "?"
+            row_id = table.column("id")[i].as_py()
+            parent_id = (
+                table.column("parent_id")[i].as_py()
+                if "parent_id" in table.column_names
+                else None
+            )
+            parent_name = "—"
+            if parent_id:
+                parent = self._fetch_row(parent_id)
+                if parent:
+                    parent_name = (
+                        parent.get("name_en") or parent.get("name_primary") or "—"
+                    )
+            lines.append(f"  • subtype={subtype:<12} parent={parent_name}  id={row_id}")
+        if n > sample:
+            lines.append(f"  … and {n - sample} more")
+        lines.append("Narrow with:")
+        lines.append(f"  {where}.<subtype>        # e.g. .locality, .county")
+        if self.chain and len(self.chain) < 4:
+            lines.append(
+                "  wkls.<country>.<region>.<parent>.<name>   # 4-level parent narrower"
+            )
+        lines.append("  wkls.by_id('<id>')        # exact pick")
+        return "\n".join(lines)
+
+    @classmethod
+    def by_id(cls, row_id: str) -> Wkl:
+        """Resolve a single row by its Overture UUID.
+
+        The escape hatch for the rare case dot access can't disambiguate
+        (e.g. 18 Franklin townships in PA that share country + region +
+        subtype + name). Get the UUID from ``.search()`` or from an
+        ``AmbiguousLocationError`` message, then pick the specific row.
+
+        Args:
+            row_id: Overture UUID from the ``id`` column of any resolved
+                row or search result.
+
+        Returns:
+            A result-mode ``Wkl`` wrapping exactly that row.
+
+        Raises:
+            ValueError: If no row with that id exists in the bundle.
+
+        Examples:
+            >>> wkls.by_id('273bc9a0-96a1-402c-992c-84f5c2f212cb').wkt()
+            'POLYGON (((...)))'
+        """
+        df = sedona.sql(queries.ROW_BY_ID.format(row_id=sqlescape(row_id)))
+        if df.count() == 0:
+            raise ValueError(f"No row found with id={row_id!r}.")
+        return cls(df=df)
+
+    @property
+    def path(self) -> str:
+        """Canonical dot-access path that resolves back to this ``Wkl``.
+
+        Bridges the two ways to reach a location:
+
+        - dot chain (``wkls.us.ca.sanfrancisco``)
+        - discovery + pick (``wkls.us.search("san bruno").by_id(uid)``)
+
+        Both produce a ``Wkl`` for the same row. ``.path`` returns the
+        short dot-access form so callers can cache, log, or round-trip
+        the location in code.
+
+        Behavior:
+
+        - Chain-mode: returns ``"wkls." + ".".join(self.chain)``.
+        - Result-mode with exactly one row: walks ``parent_id`` up and
+          emits the canonical chain (``wkls.<country>.<region>.<place>``),
+          using the same lowercase, space-stripped normalization that
+          ``__getattr__`` expects.
+        - Root ``Wkl``: returns ``"wkls"``.
+
+        Raises:
+            ValueError: On multi-row result (no single path exists).
+
+        Examples:
+            >>> wkls.us.ca.sanfrancisco.path
+            'wkls.us.ca.sanfrancisco'
+            >>> wkls.us.search("san bruno").path
+            'wkls.us.ca.sanbruno'
+        """
+        # Chain-mode: we already have the chain.
+        if self.chain:
+            return "wkls" + "".join(f".{part}" for part in self.chain)
+
+        # Root (no chain, no df): bare path.
+        if self._df is None:
+            return "wkls"
+
+        # Result-mode: must be a single row to have a single canonical path.
+        row_count = self.resolve().count()
+        if row_count != 1:
+            raise ValueError(
+                f".path requires a single-row Wkl; this one has {row_count} rows."
+            )
+
+        # Walk up parent_id collecting chain attributes. Names are
+        # normalized to lowercase + no whitespace, matching __getattr__.
+        table = self.resolve().head(1).to_arrow_table()
+        row = {col: table.column(col)[0].as_py() for col in table.column_names}
+        parts: list[str] = []
+        # At most 4 hops (country → region → city). Defensive cap in case
+        # of a malformed parent chain.
+        for _ in range(5):
+            parts.append(_chain_attr_for_row(row))
+            parent_id = row.get("parent_id")
+            if not parent_id:
+                break
+            parent = self._fetch_row(parent_id)
+            if not parent:
+                break
+            row = parent
+        parts.reverse()
+        return "wkls" + "".join(f".{p}" for p in parts)
+
+    @property
+    def parent(self) -> Wkl:
+        """Walk up the admin hierarchy by one level.
+
+        Looks up the row's ``parent_id`` and returns the parent as a
+        single-row result-mode ``Wkl``. Dots go down the tree,
+        ``.parent`` goes up.
+
+        Raises:
+            ValueError: On multi-row results, or rows that have no
+                parent (e.g. countries at the top of the tree).
+
+        Examples:
+            >>> wkls.us.ca.sanfrancisco.parent          # California
+            >>> wkls.us.ca.sanfrancisco.parent.parent   # United States
+        """
+        # NOTE: must not raise AttributeError from a @property — Python's
+        # attribute lookup protocol treats that as "attribute doesn't exist"
+        # and falls through to __getattr__, which would drill "parent" as
+        # a location name and return an empty Wkl. Use ValueError.
+        df = self.resolve()
+        row_count = df.count()
+        if row_count != 1:
+            raise ValueError(
+                f".parent requires a single-row Wkl; this one has {row_count} rows."
+            )
+        table = df.head(1).to_arrow_table()
+        if "parent_id" not in table.column_names:
+            raise ValueError(
+                ".parent requires the bundled metadata to include 'parent_id'."
+            )
+        parent_id = table.column("parent_id")[0].as_py()
+        if not parent_id:
+            raise ValueError(
+                "This row has no parent (likely a country at the top of the hierarchy)."
+            )
+        return type(self).by_id(parent_id)
+
+    @staticmethod
+    def _fetch_row(row_id: str) -> dict[str, object] | None:
+        """Look up a single row by its Overture UUID.
+
+        Populates the module-level ``_row_info`` cache. Returns ``None``
+        if no row exists with that id (e.g., parent_division_id pointing
+        at a row outside our bundled subtypes).
+        """
+        if row_id in _row_info:
+            return _row_info[row_id]
+        df = sedona.sql(queries.ROW_BY_ID.format(row_id=sqlescape(row_id)))
+        table = df.to_arrow_table()
+        if table.num_rows == 0:
+            return None
+        row = {col: table.column(col)[0].as_py() for col in table.column_names}
+        _row_info[row_id] = row
+        return row
 
     def overture_version(self) -> str:
         """Return the version of the Overture Maps dataset being used.
@@ -556,6 +807,7 @@ class Wkl:
         _country_info.clear()
         _region_info.clear()
         _dir_cache.clear()
+        _row_info.clear()
         sedona.read_parquet(
             _overture_uri(overture_version),
             options={
@@ -598,6 +850,32 @@ class Wkl:
                 f"'{self.__class__.__name__}' object has no attribute '{attr}'"
             )
 
+        # Subtype modifier: when the attr is a known subtype name
+        # (closed vocabulary) and we're holding a multi-row result,
+        # filter by subtype rather than drilling. Applies in both
+        # chain-mode and result-mode. Purely additive — subtype names
+        # don't collide with country/region/city names.
+        if attr.lower() in _SUBTYPE_NAMES and self._df is not None:
+            df = self._df
+            row_count = df.count()
+            if row_count > 1:
+                # Register current df as a temp view then filter in SQL.
+                # `overwrite=True` lets us reuse the view name across calls.
+                df.to_view("_wkls_subtype_filter", overwrite=True)
+                filtered = sedona.sql(
+                    f"SELECT * FROM _wkls_subtype_filter "
+                    f"WHERE subtype = '{sqlescape(attr.lower())}'"
+                )
+                # Preserve chain so .path etc. still reflect the chain position.
+                new_wkl = Wkl(list(self.chain), df=filtered)
+                new_wkl._country_iso = self._country_iso
+                return new_wkl
+            # Single row: if it matches the subtype, keep as-is; otherwise
+            # fall through so the attr is treated as a location name.
+            row = df.head(1).to_arrow_table()
+            if row.column("subtype")[0].as_py() == attr.lower():
+                return self
+
         # Result-mode: pass through to the cached DataFrame so standard
         # ops (count, to_arrow_table, head, show, …) keep working.
         if not self.chain and self._df is not None:
@@ -608,10 +886,27 @@ class Wkl:
             )
 
         new_chain = self.chain + [attr.lower()]
-        if len(new_chain) > 3:
-            raise ValueError("Too many chained attributes (max = 3)")
+        if len(new_chain) > 4:
+            raise ValueError(
+                "Chain too deep (max = 4). Use .by_id('<uuid>') for specific rows."
+            )
 
-        new_wkl = Wkl(new_chain)
+        # Depth 4: parent-narrower. The preceding 3-level chain must resolve
+        # to exactly one row; we use that row's id to filter children.
+        if len(new_chain) == 4:
+            df = self._df if self._df is not None else self.resolve()
+            count = df.count()
+            if count != 1:
+                raise ValueError(
+                    "4-level chain requires the preceding chain to resolve to a "
+                    f"single row; '{'.'.join(self.chain)}' has {count} rows."
+                )
+            parent_row = df.head(1).to_arrow_table()
+            parent_id = parent_row.column("id")[0].as_py()
+            new_wkl = Wkl(new_chain, _parent_id=parent_id)
+        else:
+            new_wkl = Wkl(new_chain)
+
         new_wkl._df = new_wkl.resolve()
         return new_wkl
 
@@ -811,6 +1106,22 @@ class Wkl:
             params["region"] = self._region_iso
             params["city"] = self.chain[2]
 
+        # Depth 4: parent-narrower. Filter by parent_id of the resolved
+        # depth-3 row (passed in via __init__ _parent_id).
+        if len(self.chain) > 3:
+            if not self._parent_id:
+                raise ValueError(
+                    "4-level chain requires a resolved parent_id; "
+                    "construct via __getattr__ so the parent is known."
+                )
+            self._df = sedona.sql(
+                queries.CHILDREN_BY_PARENT.format(
+                    parent_id=sqlescape(self._parent_id),
+                    name=sqlescape(self.chain[3]),
+                )
+            )
+            return self._df
+
         self._df = sedona.sql(
             query.format(**{k: sqlescape(v) for k, v in params.items()})
         )
@@ -925,12 +1236,20 @@ class Wkl:
 
         Raises:
             ValueError: If no results found or no geometry exists.
+            AmbiguousLocationError: If the resolved DataFrame has >1 row.
         """
         df = self.resolve()
-        if df.count() == 0:
-            suggestions = self._get_suggestions(self.chain[-1])
-            hint = _build_error_hint(self.chain, suggestions)
-            raise ValueError(hint.strip())
+        row_count = df.count()
+        if row_count == 0:
+            # Chain-mode empty: fall back to the "Did you mean?" hint.
+            if self.chain:
+                suggestions = self._get_suggestions(self.chain[-1])
+                hint = _build_error_hint(self.chain, suggestions)
+                raise ValueError(hint.strip())
+            raise ValueError("No rows to resolve into a geometry.")
+
+        if row_count > 1:
+            raise AmbiguousLocationError(self._ambiguity_message(df))
 
         row = df.head(1).to_arrow_table()
         gers_id = row.column("id")[0].as_py()
