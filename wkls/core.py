@@ -284,6 +284,14 @@ _DIR_REGION_METHODS = frozenset(
 )
 _DIR_CITY_METHODS = frozenset({"geojson", "wkb", "wkt"})
 
+# Result-mode: DataFrame passthroughs that make sense to surface on a
+# multi-row Wkl. Keep this to the common inspection verbs — sedona's
+# DataFrame has a wider surface but listing everything would be noise.
+_DIR_DATAFRAME_METHODS = frozenset({"count", "head", "limit", "show", "to_arrow_table"})
+
+# Result-mode: navigation properties available on a single-row Wkl.
+_DIR_SINGLE_ROW_NAV = frozenset({"parent", "path"})
+
 
 def _normalize_name(name: str | None) -> str:
     """Lowercase + strip non-alphanumerics. Matches ``__getattr__`` input form."""
@@ -916,15 +924,22 @@ class Wkl:
         Includes both ISO codes and normalized names at chain depths
         0 and 1 — both forms work via ``__getattr__``, so both are
         advertised. Region-level and deeper return methods only
-        (cities are too numerous to list). Result-mode instances
-        (empty chain, cached DataFrame) also return methods only —
-        they have no tree position to drill from.
+        (cities are too numerous to list).
+
+        Result-mode (empty chain, cached DataFrame) branches on row
+        count so ``dir()`` reflects what will actually work:
+
+        - **Single row**: geometry methods (``wkt``/``wkb``/``geojson``),
+          navigation (``path``/``parent``), DataFrame inspection verbs.
+        - **Multi row**: subtype modifiers present in the result (e.g.
+          ``.county``, ``.locality``) so callers can narrow, plus the
+          DataFrame inspection verbs. Geometry is omitted because it
+          would raise ``AmbiguousLocationError``.
+        - **Empty**: DataFrame inspection verbs only.
         """
         depth = len(self.chain)
-        # Result-mode (no chain, DataFrame already resolved): no chain drill,
-        # just expose geometry methods and DataFrame passthroughs.
         if depth == 0 and self._df is not None:
-            return sorted(_DIR_CITY_METHODS)
+            return sorted(self._dir_result_mode())
         if depth == 0:
             methods: frozenset[str] = _DIR_ROOT_METHODS
             locations = self._dir_countries()
@@ -938,6 +953,32 @@ class Wkl:
             methods = _DIR_CITY_METHODS
             locations = []
         return sorted(set(methods) | set(locations))
+
+    def _dir_result_mode(self) -> set[str]:
+        """Return the attribute surface valid for the current result set.
+
+        Branches on row count: geometry + navigation for single-row,
+        subtype modifiers for multi-row, DataFrame verbs for empty.
+        See ``__dir__`` for the full contract.
+        """
+        assert self._df is not None
+        row_count = self._df.count()
+        base = set(_DIR_DATAFRAME_METHODS)
+        if row_count == 0:
+            return base
+        if row_count == 1:
+            return base | _DIR_CITY_METHODS | _DIR_SINGLE_ROW_NAV
+        # Multi-row: surface subtype modifiers actually present in
+        # the result so callers can narrow ambiguity.
+        self._df.to_view("_wkls_dir_subtypes", overwrite=True)
+        subtypes_tbl = sedona.sql(
+            "SELECT DISTINCT subtype FROM _wkls_dir_subtypes"
+        ).to_arrow_table()
+        present = {
+            subtypes_tbl.column("subtype")[i].as_py()
+            for i in range(subtypes_tbl.num_rows)
+        }
+        return base | (present & _SUBTYPE_NAMES)
 
     def _dir_countries(self) -> list[str]:
         """Return cached country-level dir entries (ISO codes + names)."""

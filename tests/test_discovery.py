@@ -85,6 +85,30 @@ def test_dir_city_level_geometry_methods_only():
     assert set(entries) == {"geojson", "wkb", "wkt"}
 
 
+def test_dir_result_mode_multi_row_exposes_narrowers():
+    """dir() on an ambiguous result surfaces the subtype modifiers
+    recommended by AmbiguousLocationError, plus DataFrame verbs, and
+    omits geometry methods that would raise."""
+    entries = set(dir(wkls.us.ca.search("san francisco")))
+    assert {"county", "locality"}.issubset(entries)  # narrowers
+    assert {"count", "head", "to_arrow_table"}.issubset(entries)  # df verbs
+    assert entries.isdisjoint({"wkt", "wkb", "geojson"})  # geometry would raise
+
+
+def test_dir_result_mode_single_row_exposes_geometry_and_nav():
+    """dir() on a single-row result shows geometry, navigation, and df verbs."""
+    entries = set(dir(wkls.us.ca.search("oakland")))
+    assert {"wkt", "wkb", "geojson"}.issubset(entries)
+    assert {"path", "parent"}.issubset(entries)
+    assert {"count", "head", "to_arrow_table"}.issubset(entries)
+
+
+def test_dir_result_mode_empty_result():
+    """dir() on an empty result exposes only DataFrame inspection verbs."""
+    entries = set(dir(wkls.us.ca.search("zzzzznope")))
+    assert entries == {"count", "head", "limit", "show", "to_arrow_table"}
+
+
 def test_dir_cached_no_query_on_repeat(capsys):
     """Second dir() call at the same level fires zero SQL queries."""
     core._dir_cache.clear()
