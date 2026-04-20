@@ -15,12 +15,12 @@ import wkls
 
 
 @pytest.fixture
-def sf() -> wkls.core.ChainableDataFrame:
+def sf() -> wkls.Wkl:
     return wkls.us.ca.sanfrancisco
 
 
 @pytest.fixture
-def stoneyridge() -> wkls.core.ChainableDataFrame:
+def stoneyridge() -> wkls.Wkl:
     """A Falkland Islands locality — FK has no regions, so 2-level chain."""
     return wkls.fk.stoneyridge
 

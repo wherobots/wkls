@@ -154,11 +154,11 @@ def test_suggestions_via_Wkl_bracket_access(ignore_bracket_deprecation):
     assert "wkls.search('uss')" in repr_str
 
 
-# ---------- Error propagation through ChainableDataFrame ----------
+# ---------- Error propagation on chained Wkl ----------
 
 
 def test_chainable_df_propagates_root_only_errors():
-    """Root-only methods raise when called through ChainableDataFrame."""
+    """Root-only methods are hidden on chained Wkl instances."""
     us_df = wkls.us
-    with pytest.raises(ValueError, match="root object"):
+    with pytest.raises(AttributeError):
         us_df.countries()
