@@ -50,6 +50,9 @@ dev = [
     "ruff>=0.11.12",
 ]
 
+[tool.hatch.build.targets.wheel.force-include]
+"AGENTS.md" = "wkls/AGENTS.md"
+
 [tool.setuptools.package-data]
 wkls = ["data/overture.zstd18.parquet", "py.typed"]
 
