@@ -39,6 +39,7 @@ import sedonadb
 _S3_BUCKET_URL = "http://overturemaps-us-west-2.s3.amazonaws.com/"
 _S3_RELEASE_PREFIX = "release/"
 _S3_DIVISION_AREA_SUFFIX = "theme=divisions/type=division_area/"
+_S3_DIVISION_SUFFIX = "theme=divisions/type=division/"
 
 # Output path
 _OUTPUT_PATH = (
@@ -83,8 +84,13 @@ def list_s3_releases() -> list[str]:
 
 
 def overture_uri(version: str) -> str:
-    """Build the S3 URI for a given Overture Maps version."""
+    """Build the S3 URI for a given Overture Maps division_area version."""
     return f"s3://overturemaps-us-west-2/{_S3_RELEASE_PREFIX}{version}/{_S3_DIVISION_AREA_SUFFIX}"
+
+
+def division_uri(version: str) -> str:
+    """Build the S3 URI for the division (hierarchy metadata) type."""
+    return f"s3://overturemaps-us-west-2/{_S3_RELEASE_PREFIX}{version}/{_S3_DIVISION_SUFFIX}"
 
 
 def _extract_en(names: dict | None) -> str | None:
@@ -132,7 +138,9 @@ def generate_metadata(version: str) -> None:
     sedona = sedonadb.connect()
     sedona.sql("SET datafusion.execution.parquet.pushdown_filters = true")
 
-    # Read the Overture division_area GeoParquet
+    # Read the Overture division_area GeoParquet (polygons) and the companion
+    # division type (hierarchy metadata). We join on division_area.division_id
+    # = division.id to bring parent_division_id onto each row.
     print("Reading Overture division_area from S3 (this may take a minute)...")
     sedona.read_parquet(
         uri,
@@ -142,22 +150,51 @@ def generate_metadata(version: str) -> None:
         },
     ).to_view("overture")
 
-    # Query: filter to relevant subtypes + is_land, pull the names struct
-    # whole; sorted by (country, subtype, region) for optimal row group stats
-    # and predicate pushdown on the most common filter patterns.
+    print("Reading Overture division (hierarchy) from S3...")
+    sedona.read_parquet(
+        division_uri(version),
+        options={
+            "aws.skip_signature": True,
+            "aws.region": "us-west-2",
+        },
+    ).to_view("division")
+
+    # Query: filter to relevant subtypes + is_land. Resolve each row's
+    # parent into our own bundle's primary key (``id`` = division_area.id)
+    # via a double-join: division_area → division (for parent_division_id)
+    # → division_area (to get the parent's own division_area.id).
+    #
+    # Bundling `parent_id` as a direct self-reference means:
+    #   - `_fetch_row(id)` is a straight `WHERE id = ?` lookup.
+    #   - No extra UUID columns in the bundle (saves ~7 MB vs. keeping
+    #     both division_id and parent_division_id).
+    #
+    # Sorted by (country, subtype, region) for row-group stats + predicate
+    # pushdown on the common filter patterns.
     print("Filtering and extracting metadata columns...")
     query = """
+        WITH parent_map AS (
+            -- One row per division.id; pick any matching division_area.id as
+            -- the canonical parent_id. MAX gives a deterministic pick.
+            SELECT division_id, MAX(id) AS da_id
+            FROM overture
+            WHERE is_land = true
+            GROUP BY division_id
+        )
         SELECT
-            id,
-            country,
-            region,
-            subtype,
-            names.primary AS name_primary,
-            names AS names_full
-        FROM overture
-        WHERE subtype IN ('country', 'region', 'locality', 'localadmin', 'county', 'dependency')
-          AND is_land = true
-        ORDER BY country ASC, subtype ASC, region ASC
+            da.id,
+            da.country,
+            da.region,
+            da.subtype,
+            da.names.primary AS name_primary,
+            da.names AS names_full,
+            pm.da_id AS parent_id
+        FROM overture da
+        LEFT JOIN division d ON da.division_id = d.id
+        LEFT JOIN parent_map pm ON d.parent_division_id = pm.division_id
+        WHERE da.subtype IN ('country', 'region', 'locality', 'localadmin', 'county', 'dependency')
+          AND da.is_land = true
+        ORDER BY da.country ASC, da.subtype ASC, da.region ASC
     """
     df = sedona.sql(query)
 

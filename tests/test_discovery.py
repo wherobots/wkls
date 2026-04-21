@@ -47,8 +47,9 @@ def test_return_types_uniform():
 
 def test_geometry_on_single_row_search_result():
     """.wkt() works on a search result that resolves to one row."""
-    # "san francisco" within US-CA matches one locality, so single-row.
-    wkt = wkls.us.ca.search("san francisco").wkt()
+    # "oakland" within US-CA matches exactly one locality — unambiguous,
+    # so geometry resolves without raising AmbiguousLocationError.
+    wkt = wkls.us.ca.search("oakland").wkt()
     assert isinstance(wkt, str)
     assert len(wkt) > 0
 
@@ -75,13 +76,53 @@ def test_dir_country_level_both_forms():
 def test_dir_region_level_methods_only():
     """dir(wkls.us.ca) returns methods only — no city identifiers."""
     entries = dir(wkls.us.ca)
-    assert set(entries) == {"cities", "counties", "geojson", "search", "wkb", "wkt"}
+    assert set(entries) == {
+        "cities",
+        "counties",
+        "geojson",
+        "parent",
+        "path",
+        "search",
+        "wkb",
+        "wkt",
+    }
 
 
-def test_dir_city_level_geometry_methods_only():
-    """dir on a resolved city returns geometry-output methods."""
+def test_dir_city_level_exposes_geometry_and_navigation():
+    """dir on a resolved city returns geometry methods + hierarchy navigation."""
     entries = dir(wkls.us.ca.sanfrancisco)
-    assert set(entries) == {"geojson", "wkb", "wkt"}
+    assert set(entries) == {"geojson", "parent", "path", "wkb", "wkt"}
+
+
+def test_dir_country_level_has_path_but_not_parent():
+    """Countries are at the top of the hierarchy — .parent raises, .path doesn't."""
+    entries = set(dir(wkls.us))
+    assert "path" in entries
+    assert "parent" not in entries
+
+
+def test_dir_result_mode_multi_row_exposes_narrowers():
+    """dir() on an ambiguous result surfaces the subtype modifiers
+    recommended by AmbiguousLocationError, plus DataFrame verbs, and
+    omits geometry methods that would raise."""
+    entries = set(dir(wkls.us.ca.search("san francisco")))
+    assert {"county", "locality"}.issubset(entries)  # narrowers
+    assert {"count", "head", "to_arrow_table"}.issubset(entries)  # df verbs
+    assert entries.isdisjoint({"wkt", "wkb", "geojson"})  # geometry would raise
+
+
+def test_dir_result_mode_single_row_exposes_geometry_and_nav():
+    """dir() on a single-row result shows geometry, navigation, and df verbs."""
+    entries = set(dir(wkls.us.ca.search("oakland")))
+    assert {"wkt", "wkb", "geojson"}.issubset(entries)
+    assert {"path", "parent"}.issubset(entries)
+    assert {"count", "head", "to_arrow_table"}.issubset(entries)
+
+
+def test_dir_result_mode_empty_result():
+    """dir() on an empty result exposes only DataFrame inspection verbs."""
+    entries = set(dir(wkls.us.ca.search("zzzzznope")))
+    assert entries == {"count", "head", "limit", "show", "to_arrow_table"}
 
 
 def test_dir_cached_no_query_on_repeat(capsys):
@@ -163,6 +204,20 @@ def test_search_too_deep_raises():
         wkls.us.ca.sanfrancisco.search("foo")
 
 
+def test_search_normalizes_query_to_dot_access_form():
+    """search() matches the same form users type in dot-access.
+
+    ``search("sanfrancisco")`` and ``search("san francisco")`` should
+    return the same rows — both sides of the match are normalized
+    (lowercased + non-alphanumerics stripped). Regression: prior to
+    normalization, the spaceless form returned an empty DataFrame.
+    """
+    spaceless = wkls.us.ca.search("sanfrancisco").count()
+    spaced = wkls.us.ca.search("san francisco").count()
+    assert spaceless == spaced
+    assert spaceless >= 1  # at least the SF locality
+
+
 # ---------- Subtree-scoped list methods ----------
 
 
@@ -227,22 +282,29 @@ def test_regions_at_region_level_returns_self():
     assert df.column("region")[0].as_py() == "US-CA"
 
 
-def test_regions_past_region_level_raises():
-    """regions() past region level raises (depth 3 has no subtree)."""
-    with pytest.raises(ValueError, match="past region level"):
-        wkls.us.ca.sanfrancisco.regions()
+def test_regions_past_region_level_returns_empty():
+    """regions() past region level cascades via parent_id; a locality has no sub-regions."""
+    assert wkls.us.ca.sanfrancisco.regions().count() == 0
 
 
-def test_counties_past_region_level_raises():
-    """counties() past region level raises (depth 3 has no subtree)."""
-    with pytest.raises(ValueError, match="past region level"):
-        wkls.us.ca.sanfrancisco.counties()
+def test_counties_past_region_level_returns_empty():
+    """counties() past region level cascades via parent_id; a locality has no sub-counties."""
+    assert wkls.us.ca.sanfrancisco.counties().count() == 0
 
 
-def test_cities_past_region_level_raises():
-    """cities() past region level raises (depth 3 has no subtree)."""
-    with pytest.raises(ValueError, match="past region level"):
-        wkls.us.ca.sanfrancisco.cities()
+def test_cities_at_county_level_returns_children():
+    """cities() on a county returns its direct locality/localadmin children via parent_id."""
+    cities = wkls.us.ca.sandiegocounty.cities()
+    assert cities.count() >= 15  # San Diego County has ~19 localities
+    table = cities.to_arrow_table()
+    names = {table.column("name_primary")[i].as_py() for i in range(table.num_rows)}
+    assert {"San Diego", "Chula Vista", "Oceanside"}.issubset(names)
+
+
+def test_cities_past_region_level_on_ambiguous_raises():
+    """cities() past region level requires a single-row chain scope."""
+    with pytest.raises(ValueError, match="single row"):
+        wkls.us.pa.franklin.cities()
 
 
 # ---------- Root-only dataset methods ----------

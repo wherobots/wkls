@@ -107,6 +107,54 @@ Call `.count()`, `.to_arrow_table()`, etc. for inspection, or `.wkt()` /
 `.wkb()` / `.geojson()` on a single-row result to fetch geometry in one
 step.
 
+### Resolving ambiguity
+
+Some locations share names. 18 Pennsylvania townships are named "Franklin";
+"Mission" matches a locality, a county, and a localadmin in California.
+When a chain resolves to more than one row, geometry methods raise
+`AmbiguousLocationError` rather than silently picking one.
+
+Three dot-faithful ways to disambiguate:
+
+**Subtype modifier** — when candidates differ by subtype, pick one:
+
+```python
+wkls.us.ca.mission.locality   # narrows to subtype=locality
+wkls.us.ca.mission.county     # narrows to subtype=county
+```
+
+**4-level parent narrower** — name the parent in the chain:
+
+```python
+wkls.us.pa.adamscounty.franklin.wkt()   # Franklin township in Adams County
+```
+
+**`by_id()` escape hatch** — when neither dot path can narrow, pick by UUID:
+
+```python
+uid = wkls.us.ca.search("mission").to_arrow_table().column("id")[0].as_py()
+wkls.by_id(uid).wkt()
+```
+
+### Navigating the hierarchy
+
+Dots go down the tree; `.parent` goes up:
+
+```python
+wkls.us.ca.sanfrancisco.parent          # California
+wkls.us.ca.sanfrancisco.parent.parent   # United States
+```
+
+Every single-row `Wkl` has a `.path` that round-trips to the dot chain:
+
+```python
+wkls.us.ca.sanfrancisco.path            # 'wkls.us.ca.sanfrancisco'
+
+resolved = wkls.us.ca.search("oakland")
+resolved.path                            # 'wkls.us.ca.alamedacounty.oakland'
+eval(resolved.path).wkt() == resolved.wkt()   # True
+```
+
 ### Pinning an Overture version
 
 `wkls` auto-detects the latest Overture Maps release. To pin a specific version:
