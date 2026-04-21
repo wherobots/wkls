@@ -22,11 +22,35 @@ from wkls import core
 
 
 def test_dir_root_contains_key_attrs():
-    """dir(wkls) exposes classes, version, and the Wkl method surface."""
+    """dir(wkls) exposes the Wkl class, version, and the method surface."""
     entries = dir(wkls)
     assert "Wkl" in entries
-    assert "ChainableDataFrame" in entries
     assert "__version__" in entries
+
+
+def test_return_types_uniform():
+    """Chain access, listing methods, and search all return the same type."""
+    from wkls import Wkl
+
+    assert isinstance(wkls.us, Wkl)
+    assert isinstance(wkls.us.ca, Wkl)
+    assert isinstance(wkls.us.ca.sanfrancisco, Wkl)
+    assert isinstance(wkls.countries(), Wkl)
+    assert isinstance(wkls.dependencies(), Wkl)
+    assert isinstance(wkls.us.regions(), Wkl)
+    assert isinstance(wkls.us.counties(), Wkl)
+    assert isinstance(wkls.us.ca.cities(), Wkl)
+    assert isinstance(wkls.subtypes(), Wkl)
+    assert isinstance(wkls.search("united"), Wkl)
+    assert isinstance(wkls.us.search("new"), Wkl)
+
+
+def test_geometry_on_single_row_search_result():
+    """.wkt() works on a search result that resolves to one row."""
+    # "san francisco" within US-CA matches one locality, so single-row.
+    wkt = wkls.us.ca.search("san francisco").wkt()
+    assert isinstance(wkt, str)
+    assert len(wkt) > 0
 
 
 def test_dir_root_both_forms():
@@ -242,19 +266,22 @@ def test_subtypes_at_root():
         assert expected in subtype_values, f"Missing subtype: {expected}"
 
 
-def test_countries_chaining_raises():
-    """countries() is root-only."""
-    with pytest.raises(ValueError, match="root object"):
+def test_countries_hidden_on_chain():
+    """countries() is root-only and hidden from chained Wkl instances."""
+    assert not hasattr(wkls.us, "countries")
+    with pytest.raises(AttributeError):
         wkls.us.countries()
 
 
-def test_dependencies_chaining_raises():
-    """dependencies() is root-only."""
-    with pytest.raises(ValueError, match="root object"):
+def test_dependencies_hidden_on_chain():
+    """dependencies() is root-only and hidden from chained Wkl instances."""
+    assert not hasattr(wkls.us, "dependencies")
+    with pytest.raises(AttributeError):
         wkls.us.dependencies()
 
 
-def test_subtypes_chaining_raises():
-    """subtypes() is root-only."""
-    with pytest.raises(ValueError, match="root object"):
+def test_subtypes_hidden_on_chain():
+    """subtypes() is root-only and hidden from chained Wkl instances."""
+    assert not hasattr(wkls.us, "subtypes")
+    with pytest.raises(AttributeError):
         wkls.us.subtypes()

@@ -1,10 +1,9 @@
 """Tests for the bracket-access deprecation shim.
 
-``__getitem__`` on both ``Wkl`` and ``ChainableDataFrame`` still works
-for backward compatibility but emits a ``DeprecationWarning`` pointing
-at the modern replacement (dot access or ``.search()``).
-DataFrame-style indexing (list/slice keys) is unaffected — it does
-not emit the warning.
+``Wkl.__getitem__`` still works for backward compatibility but emits a
+``DeprecationWarning`` pointing at the modern replacement (dot access
+or ``.search()``). DataFrame-style indexing (list/slice keys) is
+unaffected — it does not emit the warning.
 """
 
 from __future__ import annotations
@@ -33,13 +32,13 @@ def test_bracket_wildcard_emits_deprecation_pointing_to_search():
     assert result.count() >= 1
 
 
-def test_chainable_bracket_emits_deprecation():
-    """ChainableDataFrame[...] also warns."""
+def test_chained_bracket_emits_deprecation():
+    """Bracket access on a chained Wkl also warns."""
     with pytest.warns(DeprecationWarning, match="Bracket access is deprecated"):
         wkls.us["CA"]
 
 
-def test_chainable_list_index_does_not_warn():
+def test_list_style_index_does_not_warn():
     """DataFrame-style list indexing does NOT emit the deprecation warning."""
     with warnings.catch_warnings():
         warnings.simplefilter("error", DeprecationWarning)

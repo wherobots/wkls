@@ -31,7 +31,7 @@ import sqlescapy
 
 from . import data, queries
 
-__all__ = ["Wkl", "ChainableDataFrame"]
+__all__ = ["Wkl"]
 
 # S3 bucket URL for listing Overture Maps releases (HTTP avoids SSL cert
 # issues on macOS system Python installs that lack certifi/root certs)
@@ -220,29 +220,10 @@ def sqlescape(v: str) -> str:
     return sqlescapy.sqlescape(v).replace("\\%", "%")
 
 
-# Methods that ChainableDataFrame delegates to Wkl
-_WKL_DELEGATED_METHODS = frozenset(
-    {
-        "wkt",
-        "wkb",
-        "hexwkb",
-        "geojson",
-        "svg",
-        "dependencies",
-        "countries",
-        "regions",
-        "counties",
-        "cities",
-        "subtypes",
-        "search",
-    }
-)
-
 # Methods surfaced by __dir__ at each chain depth.
 _DIR_ROOT_METHODS = frozenset(
     {
         "Wkl",
-        "ChainableDataFrame",
         "configure",
         "countries",
         "dependencies",
@@ -297,178 +278,6 @@ def _build_error_hint(chain: list[str], suggestions: list[str]) -> str:
         f"{suggestion_hint}"
         f"Tip: Use {search_example} to search by name.\n"
     )
-
-
-class ChainableDataFrame:
-    """A location-aware wrapper around sedonadb.dataframe.DataFrame.
-
-    Returned by dot-access chaining (e.g., ``wkls.us.ca`` or ``wkl.us.ca``).
-    Supports:
-
-    - Continued chaining: ``wkls.us.ca.sanfrancisco``
-    - Geometry access: ``.wkt()``, ``.wkb()``, ``.geojson()``
-    - Listing: ``.regions()``, ``.cities()``, ``.counties()``
-
-    The underlying DataFrame is accessible via ``._df``:
-
-        >>> wkls.us.ca._df.to_arrow_table()  # pyarrow.Table
-
-    Attributes:
-        _chain: List of chained attribute names representing the location path.
-    """
-
-    _metadata = ["_chain"]
-
-    def __init__(
-        self, df: sedonadb.dataframe.DataFrame, chain: list[str] | None = None
-    ) -> None:
-        """Initialize a ChainableDataFrame.
-
-        Args:
-            df: Source SedonaDB DataFrame to wrap.
-            chain: List of chained attribute names (e.g., ['us', 'ca']).
-        """
-        object.__setattr__(self, "_df", df)
-        object.__setattr__(self, "_chain", chain or [])
-
-    def __getattr__(self, attr: str) -> ChainableDataFrame:
-        """Handle attribute access for location chaining and method delegation.
-
-        Args:
-            attr: Attribute name to access (e.g., 'ca' for California).
-
-        Returns:
-            New ChainableDataFrame with the attribute added to the chain,
-            or a bound method if attr is a delegated Wkl method.
-
-        Raises:
-            AttributeError: For internal attributes or root-only methods.
-            ValueError: If chain exceeds maximum depth of 3.
-        """
-        # Avoid infinite recursion for internal attributes
-        if attr.startswith("_") or attr in ["_chain"]:
-            raise AttributeError(
-                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
-            )
-
-        # Block root-level only methods
-        if attr in ("overture_version", "overture_releases", "configure"):
-            raise AttributeError(
-                f"'{attr}' is only available at the root level. Use wkls.{attr}(), not on chained objects."
-            )
-
-        # Delegate Wkl methods dynamically
-        if attr in _WKL_DELEGATED_METHODS:
-            wkl = Wkl(self._chain)
-            return getattr(wkl, attr)
-
-        # Continue chaining
-        new_wkl = Wkl(self._chain + [attr.lower()])
-        # Validate chain length immediately
-        if len(new_wkl.chain) > 3:
-            raise ValueError("Too many chained attributes (max = 3)")
-        if len(new_wkl.chain) <= 3:
-            df = new_wkl.resolve()
-            return ChainableDataFrame(df, new_wkl.chain)
-        return new_wkl
-
-    def __getitem__(
-        self, key: Any
-    ) -> ChainableDataFrame | sedonadb.dataframe.DataFrame:
-        """[Deprecated] Bracket access for location chaining or DataFrame indexing.
-
-        See :meth:`Wkl.__getitem__` for migration guidance. DataFrame-style
-        indexing (list or slice keys) is not deprecated and does not warn.
-        """
-        import warnings
-
-        if isinstance(key, str):
-            if "%" in key:
-                cleaned = key.strip("%")
-                warnings.warn(
-                    "Bracket access with wildcards is deprecated; "
-                    f"use .search({cleaned!r}) instead.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-            else:
-                chain_prefix = ".".join(self._chain) + "." if self._chain else ""
-                warnings.warn(
-                    "Bracket access is deprecated; "
-                    f"use dot access (wkls.{chain_prefix}{key.lower()}) or the "
-                    "corresponding name form.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-
-        # If we have a chain, continue chaining (location access mode)
-        if self._chain:
-            new_wkl = Wkl(self._chain + [key.lower()])
-            # Validate chain length immediately
-            if len(new_wkl.chain) > 3 and "%" not in str(key):
-                raise ValueError("Too many chained attributes (max = 3)")
-            if "%" in str(key):
-                return new_wkl.resolve()
-            # Return ChainableDataFrame to get hint logic in __repr__
-            df = new_wkl.resolve()
-            return ChainableDataFrame(df, new_wkl.chain)
-
-        # No chain - this is DataFrame-style indexing or starting a new chain
-        # If it contains %, it's a search pattern
-        if isinstance(key, str) and "%" in key:
-            new_wkl = Wkl([key.lower()])
-            return new_wkl.resolve()
-
-        # Regular DataFrame indexing operation - use parent class
-        if isinstance(key, (list, slice)):
-            return super().__getitem__(key)
-
-        # String key without chain - this shouldn't happen on ChainableDataFrame
-        # but handle it as DataFrame indexing for safety
-        return super().__getitem__(key)
-
-    def __arrow_c_array__(self, requested_schema=None):
-        return Wkl(self._chain).__arrow_c_array__(requested_schema=requested_schema)
-
-    def __dir__(self) -> list[str]:
-        """Delegate to Wkl.__dir__ for chain-aware attribute listing."""
-        return Wkl(self._chain).__dir__()
-
-    @property
-    def _constructor(self) -> type[ChainableDataFrame]:
-        """Return the constructor for DataFrame operations.
-
-        Returns:
-            ChainableDataFrame class.
-        """
-        return ChainableDataFrame
-
-    def __repr__(self) -> str:
-        """Return string representation with hint for empty results.
-
-        Returns:
-            String representation of the DataFrame, with a hint if empty.
-        """
-        base_repr = self._df.__repr__()
-        # Check for empty results by examining the repr output (avoids extra count() query)
-        # SedonaDB empty DataFrames show header row followed immediately by footer
-        # Pattern: ╞══...══╡ (separator) followed by └──...──┘ (footer) with no data rows
-        is_empty = False
-        if self._chain:
-            lines = base_repr.strip().split("\n")
-            # Empty table has separator line (╞) immediately followed by footer (└)
-            for i, line in enumerate(lines[:-1]):
-                if line.startswith("╞") and lines[i + 1].startswith("└"):
-                    is_empty = True
-                    break
-
-        if is_empty:
-            # Get suggestions using Wkl's method
-            wkl = Wkl(self._chain)
-            suggestions = wkl._get_suggestions(self._chain[-1])
-            hint = _build_error_hint(self._chain, suggestions) + "\n"
-            return hint + base_repr
-        return base_repr
 
 
 class Wkl:
@@ -535,16 +344,60 @@ class Wkl:
 
     _has_region: bool = True
 
-    def __init__(self, chain: list[str] | None = None) -> None:
+    # Methods that only make sense on the root `Wkl`. Hidden from chained
+    # and result-mode instances so `hasattr(wkls.us, "configure")` is False,
+    # matching the pre-unification contract.
+    _ROOT_ONLY_METHODS = frozenset(
+        {
+            "configure",
+            "countries",
+            "dependencies",
+            "overture_releases",
+            "overture_version",
+            "subtypes",
+        }
+    )
+
+    def __getattribute__(self, name: str) -> Any:
+        if name in type(self)._ROOT_ONLY_METHODS:
+            # `chain` and `_df` have to be fetched without re-triggering
+            # this hook — use object.__getattribute__.
+            chain = object.__getattribute__(self, "chain")
+            df = object.__getattribute__(self, "_df")
+            if chain or df is not None:
+                raise AttributeError(
+                    f"'{type(self).__name__}' object has no attribute '{name}'"
+                )
+        return object.__getattribute__(self, name)
+
+    def __init__(
+        self,
+        chain: list[str] | None = None,
+        df: sedonadb.dataframe.DataFrame | None = None,
+    ) -> None:
         """Initialize a Wkl instance.
+
+        A single ``Wkl`` serves three roles, distinguished internally:
+
+        - **Root**: empty chain, no cached DataFrame. The module-level
+          singleton and any ``Wkl()`` constructed without arguments.
+        - **Chain-mode**: non-empty chain, DataFrame cached lazily via
+          ``resolve()``. Produced by dot-access (``wkls.us.ca``).
+        - **Result-mode**: empty chain, DataFrame provided up front.
+          Produced by listing/search methods (``.countries()``,
+          ``.search(...)``).
 
         Args:
             chain: List of location identifiers. Accepts ISO codes
                 (``['us', 'ca']``) or human-readable names
                 (``['unitedstates', 'california']``). Empty for the
-                root instance.
+                root instance and for result-mode.
+            df: Pre-resolved DataFrame to cache on this instance.
+                Used by listing/search methods to hand the caller a
+                ready-to-query ``Wkl`` without a chain.
         """
         self.chain: list[str] = chain or []
+        self._df: sedonadb.dataframe.DataFrame | None = df
         self._country_iso: str = ""
         if not self.chain:
             return
@@ -711,18 +564,25 @@ class Wkl:
             },
         ).to_view("overture", overwrite=True)
 
-    def __getattr__(self, attr: str) -> ChainableDataFrame | Wkl:
-        """Handle attribute access for location chaining.
+    def __getattr__(self, attr: str) -> Any:
+        """Handle attribute access.
 
-        Args:
-            attr: Attribute name representing a location identifier.
+        Three behaviors, picked by mode:
 
-        Returns:
-            ChainableDataFrame if chain is complete, otherwise Wkl.
+        - **Root / chain-mode**: drill one level deeper into the admin
+          hierarchy (``wkls.us.ca.sanfrancisco``). Raises ``ValueError``
+          past chain depth 3.
+        - **Result-mode** (empty chain, cached DataFrame — e.g. after
+          ``.search(...)`` or ``.countries()``): forward to the cached
+          DataFrame so callers can do ``.count()``, ``.to_arrow_table()``,
+          ``.head(n)``, etc. Location-name drill doesn't apply here —
+          the result set has no tree position.
 
         Raises:
-            AttributeError: For private/dunder attributes.
-            ValueError: If chain exceeds maximum depth of 3.
+            AttributeError: For private/dunder attributes, or in
+                result-mode when the attribute isn't found on the
+                cached DataFrame.
+            ValueError: If chain depth would exceed 3.
         """
         # Don't intercept private/dunder attributes - raise AttributeError
         if attr.startswith("_"):
@@ -730,24 +590,46 @@ class Wkl:
                 f"'{self.__class__.__name__}' object has no attribute '{attr}'"
             )
 
-        new_wkl = Wkl(self.chain + [attr.lower()])
-        # Validate chain length immediately
-        if len(new_wkl.chain) > 3:
+        # Root-only methods never drill as location names on chain/result-mode
+        # instances. __getattribute__ already hides them; this guard prevents
+        # __getattr__ from silently interpreting e.g. "configure" as a chain step.
+        if attr in type(self)._ROOT_ONLY_METHODS:
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+            )
+
+        # Result-mode: pass through to the cached DataFrame so standard
+        # ops (count, to_arrow_table, head, show, …) keep working.
+        if not self.chain and self._df is not None:
+            if hasattr(self._df, attr):
+                return getattr(self._df, attr)
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+            )
+
+        new_chain = self.chain + [attr.lower()]
+        if len(new_chain) > 3:
             raise ValueError("Too many chained attributes (max = 3)")
 
-        if len(new_wkl.chain) <= 3:
-            df = new_wkl.resolve()
-            return ChainableDataFrame(df, new_wkl.chain)
+        new_wkl = Wkl(new_chain)
+        new_wkl._df = new_wkl.resolve()
         return new_wkl
 
     def __dir__(self) -> list[str]:
-        """Return contextually valid attributes for the current chain level.
+        """Return contextually valid attributes for this ``Wkl``.
 
-        Includes both ISO codes and normalized names — both forms work via
-        ``__getattr__``, so both are advertised. Region-level and deeper
-        return methods only (cities are too numerous to list).
+        Includes both ISO codes and normalized names at chain depths
+        0 and 1 — both forms work via ``__getattr__``, so both are
+        advertised. Region-level and deeper return methods only
+        (cities are too numerous to list). Result-mode instances
+        (empty chain, cached DataFrame) also return methods only —
+        they have no tree position to drill from.
         """
         depth = len(self.chain)
+        # Result-mode (no chain, DataFrame already resolved): no chain drill,
+        # just expose geometry methods and DataFrame passthroughs.
+        if depth == 0 and self._df is not None:
+            return sorted(_DIR_CITY_METHODS)
         if depth == 0:
             methods: frozenset[str] = _DIR_ROOT_METHODS
             locations = self._dir_countries()
@@ -795,9 +677,7 @@ class Wkl:
                 result.add(name)
         return sorted(result)
 
-    def __getitem__(
-        self, key: str
-    ) -> ChainableDataFrame | sedonadb.dataframe.DataFrame:
+    def __getitem__(self, key: Any) -> Wkl | sedonadb.dataframe.DataFrame:
         """[Deprecated] Handle bracket access for location chaining.
 
         Emits a :class:`DeprecationWarning` pointing at the modern API:
@@ -807,13 +687,23 @@ class Wkl:
         - For wildcard search, use :meth:`search`: ``wkls.us.ca.search("fran")``
           instead of ``wkls.us.ca["%fran%"]``.
 
-        The old behavior is preserved for backward compatibility and will be
+        DataFrame-style indexing (list / slice keys) is unaffected —
+        it passes through to the cached DataFrame and does not warn.
+
+        The shim is preserved for backward compatibility and will be
         removed in a future major version.
         """
         import warnings
 
-        if "%" in str(key):
-            cleaned = str(key).strip("%")
+        # DataFrame-style passthrough: list or slice keys operate on
+        # the cached DataFrame (result-mode or chain-mode).
+        if isinstance(key, (list, slice)):
+            df = self.resolve() if self._df is None else self._df
+            return df[key]
+
+        key_str = str(key)
+        if "%" in key_str:
+            cleaned = key_str.strip("%")
             warnings.warn(
                 "Bracket access with wildcards is deprecated; "
                 f"use .search({cleaned!r}) instead.",
@@ -824,43 +714,73 @@ class Wkl:
             chain_prefix = ".".join(self.chain) + "." if self.chain else ""
             warnings.warn(
                 "Bracket access is deprecated; "
-                f"use dot access (wkls.{chain_prefix}{key.lower()}) or the "
+                f"use dot access (wkls.{chain_prefix}{key_str.lower()}) or the "
                 "corresponding name form.",
                 DeprecationWarning,
                 stacklevel=2,
             )
 
-        new_wkl = Wkl(self.chain + [key.lower()])
-        # Validate chain length immediately
-        if len(new_wkl.chain) > 3 and "%" not in key:
+        new_chain = self.chain + [key_str.lower()]
+        if len(new_chain) > 3 and "%" not in key_str:
             raise ValueError("Too many chained attributes (max = 3)")
-        # If this looks like a search pattern (contains %), return DataFrame directly
-        if "%" in key:
-            return new_wkl.resolve()
-        # Return ChainableDataFrame to get hint logic in __repr__
-        df = new_wkl.resolve()
-        return ChainableDataFrame(df, new_wkl.chain)
+        # Wildcard pattern: return the raw DataFrame for back-compat.
+        if "%" in key_str:
+            return Wkl(new_chain).resolve()
+
+        new_wkl = Wkl(new_chain)
+        new_wkl._df = new_wkl.resolve()
+        return new_wkl
 
     def __repr__(self) -> str:
-        """Return string representation of the resolved DataFrame.
+        """Return string representation of the underlying data.
 
-        Returns:
-            String representation of the underlying data.
+        Three shapes:
+
+        - **Root** (empty chain, no DataFrame): short friendly label.
+        - **Chain-mode**: the DataFrame repr, plus a "Did you mean?"
+          + ``.search()`` hint when no rows matched.
+        - **Result-mode** (empty chain, cached DataFrame from a
+          listing/search call): just the DataFrame repr.
         """
-        return repr(self.resolve())
+        if not self.chain and self._df is None:
+            return "<wkls.Wkl root>"
+
+        base_repr = repr(self.resolve())
+
+        if self.chain:
+            # Detect empty result by scanning the repr for the "header
+            # separator immediately followed by footer" pattern that
+            # SedonaDB uses for zero-row tables. Avoids an extra count() call.
+            is_empty = False
+            lines = base_repr.strip().split("\n")
+            for i, line in enumerate(lines[:-1]):
+                if line.startswith("╞") and lines[i + 1].startswith("└"):
+                    is_empty = True
+                    break
+            if is_empty:
+                suggestions = self._get_suggestions(self.chain[-1])
+                hint = _build_error_hint(self.chain, suggestions) + "\n"
+                return hint + base_repr
+        return base_repr
 
     def resolve(self) -> sedonadb.dataframe.DataFrame:
         """Resolve the location chain to a DataFrame.
 
-        Executes the appropriate SQL query based on the chain depth
-        to retrieve matching location records.
+        Idempotent: returns ``self._df`` if already populated (either
+        eagerly by ``__getattr__`` on chain access, or explicitly by
+        listing/search methods in result-mode). Otherwise executes the
+        appropriate SQL query based on the chain depth.
 
         Returns:
             DataFrame containing matching location records.
 
         Raises:
-            ValueError: If the chain is empty.
+            ValueError: If the chain is empty and no cached DataFrame
+                is available (i.e., called on a root ``Wkl``).
         """
+        if self._df is not None:
+            return self._df
+
         if not self.chain:
             raise ValueError(
                 "No attributes in the chain. Use wkls.<country> or wkls.<country>.<region>, etc."
@@ -891,7 +811,10 @@ class Wkl:
             params["region"] = self._region_iso
             params["city"] = self.chain[2]
 
-        return sedona.sql(query.format(**{k: sqlescape(v) for k, v in params.items()}))
+        self._df = sedona.sql(
+            query.format(**{k: sqlescape(v) for k, v in params.items()})
+        )
+        return self._df
 
     def _get_suggestions(
         self, failed_name: str, n: int = 5, max_distance: int = 15
@@ -1122,12 +1045,12 @@ class Wkl:
         pyarrow_wkb_array = ga.with_crs([wkb_bytes], crs=ga.OGC_CRS84)
         return pyarrow_wkb_array.__arrow_c_array__(requested_schema=requested_schema)
 
-    def dependencies(self) -> sedonadb.dataframe.DataFrame:
+    def dependencies(self) -> Wkl:
         """Get all dependencies (territories, overseas regions, etc.).
 
         Returns:
-            DataFrame containing all dependency records with id, country,
-            subtype, name_primary, and name_en columns.
+            A result-mode ``Wkl`` wrapping the matching rows (id,
+            country, subtype, name_primary, name_en).
 
         Raises:
             ValueError: If called on a chained object instead of root.
@@ -1142,14 +1065,14 @@ class Wkl:
             FROM wkls
             WHERE subtype = 'dependency'
         """
-        return sedona.sql(query)
+        return Wkl(df=sedona.sql(query))
 
-    def countries(self) -> sedonadb.dataframe.DataFrame:
+    def countries(self) -> Wkl:
         """Get all countries.
 
         Returns:
-            DataFrame containing all country records with id, country,
-            subtype, name_primary, and name_en columns.
+            A result-mode ``Wkl`` wrapping the matching rows (id,
+            country, subtype, name_primary, name_en).
 
         Raises:
             ValueError: If called on a chained object instead of root.
@@ -1164,9 +1087,9 @@ class Wkl:
             FROM wkls
             WHERE subtype = 'country'
         """
-        return sedona.sql(query)
+        return Wkl(df=sedona.sql(query))
 
-    def regions(self) -> sedonadb.dataframe.DataFrame:
+    def regions(self) -> Wkl:
         """List regions in the current chain scope.
 
         Scope follows chain depth:
@@ -1174,16 +1097,14 @@ class Wkl:
             - ``wkls.us.regions()``  — every region in the US
 
         Returns:
-            DataFrame of region rows.
+            A result-mode ``Wkl`` of region rows.
 
         Raises:
             ValueError: If called past region level (no regions below regions).
         """
         return self._list_subtype("('region')", "regions")
 
-    def _list_subtype(
-        self, subtype_filter: str, method_name: str
-    ) -> sedonadb.dataframe.DataFrame:
+    def _list_subtype(self, subtype_filter: str, method_name: str) -> Wkl:
         """List rows of the given subtype within the current chain scope.
 
         Args:
@@ -1192,7 +1113,7 @@ class Wkl:
             method_name: Calling method name for error messages.
 
         Returns:
-            DataFrame containing matching rows.
+            A result-mode ``Wkl`` wrapping the matching rows.
 
         Raises:
             ValueError: If called past region level (chain depth > 2).
@@ -1206,7 +1127,7 @@ class Wkl:
 
         if depth == 0:
             query = f"SELECT * FROM wkls WHERE subtype IN {subtype_filter}"
-            return sedona.sql(query)
+            return Wkl(df=sedona.sql(query))
 
         if depth == 1 or not self._has_region:
             # Country-scoped: depth 1, or depth 2 on a no-region country
@@ -1216,7 +1137,9 @@ class Wkl:
                 WHERE country = '{{country}}'
                   AND subtype IN {subtype_filter}
             """
-            return sedona.sql(query.format(country=sqlescape(self._country_iso)))
+            return Wkl(
+                df=sedona.sql(query.format(country=sqlescape(self._country_iso)))
+            )
 
         # depth == 2 with regions: region-scoped
         query = f"""
@@ -1225,14 +1148,16 @@ class Wkl:
               AND region = '{{region}}'
               AND subtype IN {subtype_filter}
         """
-        return sedona.sql(
-            query.format(
-                country=sqlescape(self._country_iso),
-                region=sqlescape(self._region_iso),
+        return Wkl(
+            df=sedona.sql(
+                query.format(
+                    country=sqlescape(self._country_iso),
+                    region=sqlescape(self._region_iso),
+                )
             )
         )
 
-    def counties(self) -> sedonadb.dataframe.DataFrame:
+    def counties(self) -> Wkl:
         """List counties in the current chain scope.
 
         Scope follows chain depth:
@@ -1241,14 +1166,14 @@ class Wkl:
             - ``wkls.us.ca.counties()``   — every county in California
 
         Returns:
-            DataFrame of county rows.
+            A result-mode ``Wkl`` of county rows.
 
         Raises:
             ValueError: If called past region level.
         """
         return self._list_subtype("('county')", "counties")
 
-    def cities(self) -> sedonadb.dataframe.DataFrame:
+    def cities(self) -> Wkl:
         """List cities (localities and localadmins) in the current chain scope.
 
         Scope follows chain depth:
@@ -1257,18 +1182,18 @@ class Wkl:
             - ``wkls.us.ca.cities()``   — every city in California
 
         Returns:
-            DataFrame of city rows.
+            A result-mode ``Wkl`` of city rows.
 
         Raises:
             ValueError: If called past region level.
         """
         return self._list_subtype("('locality', 'localadmin')", "cities")
 
-    def subtypes(self) -> sedonadb.dataframe.DataFrame:
+    def subtypes(self) -> Wkl:
         """Get all distinct division subtypes in the dataset.
 
         Returns:
-            DataFrame containing all unique subtype values.
+            A result-mode ``Wkl`` wrapping the distinct subtype rows.
 
         Raises:
             ValueError: If called on a chained object instead of root.
@@ -1279,15 +1204,15 @@ class Wkl:
             )
 
         query = """SELECT DISTINCT subtype FROM wkls"""
-        return sedona.sql(query)
+        return Wkl(df=sedona.sql(query))
 
-    def search(self, query: str) -> sedonadb.dataframe.DataFrame:
+    def search(self, query: str) -> Wkl:
         """Search for locations whose names contain a substring.
 
         Searches every row within the current chain's scope — countries,
         dependencies, regions, counties, and localities alike — and returns
-        matches as a DataFrame. Rows carry a ``subtype`` column so callers
-        can tell what they got back.
+        matches as a result-mode ``Wkl``. Rows carry a ``subtype`` column
+        so callers can tell what they got back.
 
         The scope narrows with chain depth:
 
@@ -1300,7 +1225,8 @@ class Wkl:
                 ``name_en`` with ``ILIKE '%query%'``.
 
         Returns:
-            DataFrame with ``id, country, region, subtype, name_primary, name_en``.
+            A result-mode ``Wkl`` of matching rows (id, country, region,
+            subtype, name_primary, name_en).
 
         Raises:
             ValueError: If called past city level (chain depth > 2).
@@ -1333,4 +1259,4 @@ class Wkl:
                 region=sqlescape(self._region_iso),
                 query=escaped_query,
             )
-        return sedona.sql(sql)
+        return Wkl(df=sedona.sql(sql))
