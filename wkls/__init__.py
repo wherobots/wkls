@@ -1,12 +1,55 @@
-"""wkls — Well-Known Locations.
+"""wkls — Well-Known Locations. Administrative boundaries via dot access.
 
-Provides chainable access to Overture Maps administrative boundary geometries
-via Apache SedonaDB. Two usage patterns, both supported:
+Quickstart:
 
-    >>> import wkls                          # module-level ergonomic access
+    >>> import wkls
+    >>> wkls.us.ca.sanfrancisco.wkt()      # geometry as WKT string
+    >>> wkls.india.maharashtra.geojson()   # or GeoJSON, or wkb()
+
+Chain depth maps to the admin hierarchy (max 3 for unambiguous cases):
+
+    wkls.<country>                         # country / dependency
+    wkls.<country>.<region>                # state / province
+    wkls.<country>.<region>.<city>         # county / locality / localadmin
+
+Names are lowercased with non-alphanumerics stripped; ISO codes work
+too: wkls.us, wkls.unitedstates, wkls.us.ca, wkls.us.california.
+
+When a chain resolves to >1 row, geometry methods raise
+AmbiguousLocationError (a ValueError subclass). Three dot-faithful
+ways to narrow, plus an escape hatch:
+
+    wkls.us.ca.mission.locality            # subtype modifier
+    wkls.us.pa.adamscounty.franklin        # 4-level parent narrower
+    wkls.by_id('273bc9a0-...')             # exact pick (UUID from
+                                           #   the error message)
+
+Navigation and introspection:
+
+    wkls.us.ca.sanfrancisco.parent         # → California
+    wkls.us.ca.sanfrancisco.path           # 'wkls.us.ca.sanfrancisco'
+    wkls.us.ca.search('mission')           # substring search, any depth
+
+Listing scopes narrow with chain depth:
+
+    wkls.countries()                       # all 219 countries
+    wkls.us.regions()                      # 51 US regions
+    wkls.us.ca.counties()                  # 58 CA counties
+    wkls.us.ca.sandiegocounty.cities()     # 19 localities in SD County
+
+Every call returns a Wkl — one unified type. Inspect with .count(),
+.head(), .to_arrow_table(); extract geometry with .wkt() / .wkb() /
+.geojson() when the Wkl holds exactly one row.
+
+For the full agent reference including error handling patterns:
+    >>> print(wkls.__llm_guide__)
+
+Two ways to use the library:
+
+    >>> import wkls                        # module-level ergonomics
     >>> wkls.us.ca.sanfrancisco.wkt()
 
-    >>> from wkls import Wkl                 # explicit instantiation
+    >>> from wkls import Wkl               # explicit instantiation
     >>> wkl = Wkl()
     >>> wkl.us.ca.sanfrancisco.wkt()
 """
