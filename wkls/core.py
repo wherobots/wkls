@@ -415,7 +415,7 @@ class Wkl:
     def __init__(
         self,
         chain: list[str] | None = None,
-        df: sedonadb.dataframe.DataFrame | None = None,
+        _df: sedonadb.dataframe.DataFrame | None = None,
         _parent_id: str | None = None,
     ) -> None:
         """Initialize a Wkl instance.
@@ -435,16 +435,16 @@ class Wkl:
                 (``['us', 'ca']``) or human-readable names
                 (``['unitedstates', 'california']``). Empty for the
                 root instance and for result-mode.
-            df: Pre-resolved DataFrame to cache on this instance.
-                Used by listing/search methods to hand the caller a
-                ready-to-query ``Wkl`` without a chain.
+            _df: Internal. Pre-resolved DataFrame cached on this
+                instance by listing/search methods. Private because
+                users never supply it directly.
             _parent_id: Internal. At chain depth 4 (parent narrower)
                 this is the resolved depth-3 row's ``id``; it lets
                 ``resolve()`` filter by ``parent_id = ?``. Private
                 because users never supply it directly.
         """
         self.chain: list[str] = chain or []
-        self._df: sedonadb.dataframe.DataFrame | None = df
+        self._df: sedonadb.dataframe.DataFrame | None = _df
         self._parent_id: str | None = _parent_id
         self._country_iso: str = ""
         if not self.chain:
@@ -586,7 +586,7 @@ class Wkl:
         df = sedona.sql(queries.ROW_BY_ID.format(row_id=sqlescape(row_id)))
         if df.count() == 0:
             raise ValueError(f"No row found with id={row_id!r}.")
-        return cls(df=df)
+        return cls(_df=df)
 
     @property
     def path(self) -> str:
@@ -860,7 +860,7 @@ class Wkl:
                     f"WHERE subtype = '{sqlescape(attr.lower())}'"
                 )
                 # Preserve chain so .path etc. still reflect the chain position.
-                new_wkl = Wkl(list(self.chain), df=filtered)
+                new_wkl = Wkl(list(self.chain), _df=filtered)
                 new_wkl._country_iso = self._country_iso
                 return new_wkl
             # Single row: if it matches the subtype, keep as-is; otherwise
@@ -1478,7 +1478,7 @@ class Wkl:
             FROM wkls
             WHERE subtype = 'dependency'
         """
-        return Wkl(df=sedona.sql(query))
+        return Wkl(_df=sedona.sql(query))
 
     def countries(self) -> Wkl:
         """Get all countries.
@@ -1500,7 +1500,7 @@ class Wkl:
             FROM wkls
             WHERE subtype = 'country'
         """
-        return Wkl(df=sedona.sql(query))
+        return Wkl(_df=sedona.sql(query))
 
     def regions(self) -> Wkl:
         """List regions in the current chain scope.
@@ -1536,7 +1536,7 @@ class Wkl:
 
         if depth == 0:
             query = f"SELECT * FROM wkls WHERE subtype IN {subtype_filter}"
-            return Wkl(df=sedona.sql(query))
+            return Wkl(_df=sedona.sql(query))
 
         if depth == 1 or not self._has_region:
             # Country-scoped: depth 1, or depth 2 on a no-region country
@@ -1547,7 +1547,7 @@ class Wkl:
                   AND subtype IN {subtype_filter}
             """
             return Wkl(
-                df=sedona.sql(query.format(country=sqlescape(self._country_iso)))
+                _df=sedona.sql(query.format(country=sqlescape(self._country_iso)))
             )
 
         if depth == 2:
@@ -1559,7 +1559,7 @@ class Wkl:
                   AND subtype IN {subtype_filter}
             """
             return Wkl(
-                df=sedona.sql(
+                _df=sedona.sql(
                     query.format(
                         country=sqlescape(self._country_iso),
                         region=sqlescape(self._region_iso),
@@ -1583,7 +1583,7 @@ class Wkl:
             WHERE parent_id = '{{parent_id}}'
               AND subtype IN {subtype_filter}
         """
-        return Wkl(df=sedona.sql(query.format(parent_id=sqlescape(row_id))))
+        return Wkl(_df=sedona.sql(query.format(parent_id=sqlescape(row_id))))
 
     def counties(self) -> Wkl:
         """List counties in the current chain scope.
@@ -1632,7 +1632,7 @@ class Wkl:
             )
 
         query = """SELECT DISTINCT subtype FROM wkls"""
-        return Wkl(df=sedona.sql(query))
+        return Wkl(_df=sedona.sql(query))
 
     def search(self, query: str) -> Wkl:
         """Search for locations whose names contain a substring.
@@ -1692,4 +1692,4 @@ class Wkl:
                 region=sqlescape(self._region_iso),
                 query=escaped_query,
             )
-        return Wkl(df=sedona.sql(sql))
+        return Wkl(_df=sedona.sql(sql))
