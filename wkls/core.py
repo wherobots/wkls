@@ -524,40 +524,109 @@ class Wkl:
     def _ambiguity_message(self, df: sedonadb.dataframe.DataFrame) -> str:
         """Format an ``AmbiguousLocationError`` message for a multi-row result.
 
-        Lists each candidate with subtype, parent name (via
-        ``parent_division_id``), and id. Caps at 10 rows to keep the
-        message digestible on wide result sets.
+        Shows copy-pasteable chains the caller can run next. Detects the
+        actual ambiguity class (differ by subtype / differ by parent /
+        differ only by id) and emits the narrowers that would resolve
+        each specific case — rather than a generic 'try .locality or
+        .county' hint that may not apply. Always lists ``by_id(...)``
+        for every candidate as the guaranteed fallback.
         """
-        where = ".".join(self.chain) if self.chain else "this query"
+        where = "wkls." + ".".join(self.chain) if self.chain else "this result"
         table = df.to_arrow_table()
         n = table.num_rows
-        lines = [f"{n} matches for {where}. Candidates:"]
         sample = min(n, 10)
+
+        candidates: list[dict[str, Any]] = []
         for i in range(sample):
-            subtype = table.column("subtype")[i].as_py() or "?"
-            row_id = table.column("id")[i].as_py()
-            parent_id = (
-                table.column("parent_id")[i].as_py()
-                if "parent_id" in table.column_names
-                else None
-            )
-            parent_name = "—"
+            row = {col: table.column(col)[i].as_py() for col in table.column_names}
+            attr = _chain_attr_for_row(row)
+            name = row.get("name_en") or row.get("name_primary") or "?"
+            parent_id = row.get("parent_id")
+            parent_attr: str | None = None
+            parent_name: str | None = None
             if parent_id:
-                parent = self._fetch_row(parent_id)
+                parent = self._fetch_row(str(parent_id))
                 if parent:
+                    parent_attr = _chain_attr_for_row(parent)
                     parent_name = (
-                        parent.get("name_en") or parent.get("name_primary") or "—"
+                        parent.get("name_en") or parent.get("name_primary") or None
                     )
-            lines.append(f"  • subtype={subtype:<12} parent={parent_name}  id={row_id}")
-        if n > sample:
-            lines.append(f"  … and {n - sample} more")
-        lines.append("Narrow with:")
-        lines.append(f"  {where}.<subtype>        # e.g. .locality, .county")
-        if self.chain and len(self.chain) < 4:
-            lines.append(
-                "  wkls.<country>.<region>.<parent>.<name>   # 4-level parent narrower"
+            candidates.append(
+                {
+                    "subtype": row.get("subtype") or "?",
+                    "id": row.get("id"),
+                    "attr": attr,
+                    "name": name,
+                    "parent_attr": parent_attr,
+                    "parent_name": parent_name,
+                }
             )
-        lines.append("  wkls.by_id('<id>')        # exact pick")
+
+        subtypes_differ = len({c["subtype"] for c in candidates}) > 1
+        attrs_differ = len({c["attr"] for c in candidates}) > 1
+        parents_differ = len({c["parent_attr"] for c in candidates}) > 1
+
+        lines: list[str] = []
+        chain_prefix = (
+            "wkls." + ".".join(self.chain[:-1]) if len(self.chain) >= 1 else "wkls"
+        )
+
+        if self.chain and subtypes_differ:
+            lines.append(f"{n} matches for '{where}'. Narrow by subtype:")
+            lines.append("")
+            for c in candidates:
+                lines.append(
+                    f"  {where}.{c['subtype']:<12}"
+                    f"  # {c['name']} ({c['subtype']})"
+                )
+        elif self.chain and attrs_differ:
+            lines.append(
+                f"{n} matches for '{where}'. Use the unambiguous normalized name:"
+            )
+            lines.append("")
+            for c in candidates:
+                lines.append(
+                    f"  {chain_prefix}.{c['attr']:<18}"
+                    f"  # {c['name']} ({c['subtype']})"
+                )
+        elif self.chain and parents_differ:
+            lines.append(
+                f"{n} matches for '{where}'. Narrow by parent (4-level chain):"
+            )
+            lines.append("")
+            for c in candidates:
+                parent_label = c["parent_name"] or c["parent_attr"] or "?"
+                if c["parent_attr"]:
+                    lines.append(
+                        f"  {chain_prefix}.{c['parent_attr']}.{c['attr']}"
+                        f"  # {c['name']} in {parent_label}"
+                    )
+        else:
+            # Same subtype, same attr, same parent (or no chain to narrow) —
+            # dot paths can't distinguish these. by_id is the only way.
+            lines.append(
+                f"{n} matches for '{where}'. No dot-access narrower "
+                "distinguishes these — use by_id:"
+            )
+            lines.append("")
+
+        # Always show by_id lines with literal UUID + .wkt() call so agents
+        # can copy-paste directly.
+        lines.append("")
+        lines.append("Or pick by id:")
+        id_cap = 5
+        for c in candidates[:id_cap]:
+            parent_note = f", in {c['parent_name']}" if c["parent_name"] else ""
+            lines.append(
+                f"  wkls.by_id('{c['id']}').wkt()"
+                f"  # {c['name']} ({c['subtype']}{parent_note})"
+            )
+        if len(candidates) > id_cap:
+            lines.append(f"  … and {len(candidates) - id_cap} more ids")
+
+        if n > sample:
+            lines.append(f"({n - sample} additional candidates truncated)")
+
         return "\n".join(lines)
 
     @classmethod
