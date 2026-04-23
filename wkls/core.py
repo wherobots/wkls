@@ -1109,15 +1109,21 @@ class Wkl:
         Three shapes:
 
         - **Root** (empty chain, no DataFrame): short friendly label.
-        - **Chain-mode**: the DataFrame repr, plus a "Did you mean?"
-          + ``.search()`` hint when no rows matched.
+        - **Chain-mode**: a one-line state header (path/chain, rows,
+          subtype breakdown), then the DataFrame table, plus a "Did
+          you mean?" + ``.search()`` hint when no rows matched.
         - **Result-mode** (empty chain, cached DataFrame from a
-          listing/search call): just the DataFrame repr.
+          listing/search call): header + DataFrame table.
+
+        The state header is designed so callers — especially AI agents
+        doing multi-turn work — can read their own state at a glance
+        without an extra ``.count()`` call.
         """
         if not self.chain and self._df is None:
-            return "<wkls.Wkl root>"
+            return "Wkl(root)"
 
         base_repr = repr(self.resolve())
+        header = self._repr_header()
 
         if self.chain:
             # Detect empty result by scanning the repr for the "header
@@ -1132,8 +1138,67 @@ class Wkl:
             if is_empty:
                 suggestions = self._get_suggestions(self.chain[-1])
                 hint = _build_error_hint(self.chain, suggestions) + "\n"
-                return hint + base_repr
-        return base_repr
+                return f"{header}\n{hint}{base_repr}"
+        return f"{header}\n{base_repr}"
+
+    def _repr_header(self) -> str:
+        """One-line state header: path/chain, row count, subtype breakdown.
+
+        Formatted so an agent inspecting a ``Wkl`` can see its mode and
+        size at a glance. ``path=`` is used when the chain resolves to a
+        single row (round-trippable); ``chain=`` is used otherwise.
+        """
+        parts: list[str] = []
+        if self.chain:
+            path_str = "wkls." + ".".join(self.chain)
+            key = "path" if self._is_single_row() else "chain"
+            parts.append(f"{key}='{path_str}'")
+
+        row_count = self._safe_row_count()
+        parts.append(f"rows={row_count}")
+
+        if row_count >= 1:
+            subtypes = self._subtype_counts()
+            if len(subtypes) == 1:
+                st = next(iter(subtypes))
+                parts.append(f"subtype='{st}'")
+            elif subtypes:
+                body = ", ".join(f"{k}: {v}" for k, v in subtypes.items())
+                parts.append(f"subtypes={{{body}}}")
+
+        return f"Wkl({', '.join(parts)})"
+
+    def _is_single_row(self) -> bool:
+        """True iff the resolved DataFrame holds exactly one row."""
+        try:
+            df = self._df if self._df is not None else self.resolve()
+            return df.count() == 1
+        except Exception:
+            return False
+
+    def _safe_row_count(self) -> int:
+        """Best-effort row count; 0 on failure so repr never throws."""
+        try:
+            df = self._df if self._df is not None else self.resolve()
+            return int(df.count())
+        except Exception:
+            return 0
+
+    def _subtype_counts(self) -> dict[str, int]:
+        """Distinct subtypes with row counts, ordered by count descending."""
+        try:
+            df = self._df if self._df is not None else self.resolve()
+            df.to_view("_wkls_repr_subtypes", overwrite=True)
+            tbl = sedona.sql(
+                "SELECT subtype, COUNT(*) AS n FROM _wkls_repr_subtypes "
+                "GROUP BY subtype ORDER BY n DESC"
+            ).to_arrow_table()
+            return {
+                tbl.column("subtype")[i].as_py(): tbl.column("n")[i].as_py()
+                for i in range(tbl.num_rows)
+            }
+        except Exception:
+            return {}
 
     def resolve(self) -> sedonadb.dataframe.DataFrame:
         """Resolve the location chain to a DataFrame.

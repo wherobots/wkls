@@ -71,6 +71,68 @@ def test_version_attribute():
     assert len(wkls.__version__) > 0
 
 
+def test_llm_guide_attribute():
+    """__llm_guide__ ships the AGENTS.md reference for runtime access."""
+    assert hasattr(wkls, "__llm_guide__")
+    guide = wkls.__llm_guide__
+    assert isinstance(guide, str)
+    # Sanity-check the content covers the core agent-relevant surface.
+    for phrase in (
+        "Using wkls from an AI agent",
+        "AmbiguousLocationError",
+        "by_id(",
+        ".search(",
+        ".parent",
+        ".path",
+    ):
+        assert phrase in guide, f"missing from __llm_guide__: {phrase!r}"
+
+
+def test_repr_header_root():
+    """Root Wkl() repr is a terse label."""
+    assert repr(Wkl()) == "Wkl(root)"
+
+
+def test_repr_header_single_row_chain():
+    """A resolved single-row chain advertises path, rows, and subtype."""
+    header = repr(wkls.us.ca.sanfrancisco).split("\n")[0]
+    assert header.startswith("Wkl(")
+    assert "path='wkls.us.ca.sanfrancisco'" in header
+    assert "rows=1" in header
+    assert "subtype='county'" in header
+
+
+def test_repr_header_multi_row_chain():
+    """An ambiguous chain uses chain= rather than path= and shows row count."""
+    header = repr(wkls.us.pa.franklin).split("\n")[0]
+    assert "chain='wkls.us.pa.franklin'" in header
+    assert "rows=18" in header
+
+
+def test_repr_header_result_mode_multi_row():
+    """Multi-row results show a subtype breakdown dict."""
+    header = repr(wkls.us.ca.search("san")).split("\n")[0]
+    assert header.startswith("Wkl(rows=")
+    assert "subtypes=" in header
+
+
+def test_repr_header_empty_result():
+    """Empty result-mode Wkl shows rows=0 with no subtype info."""
+    header = repr(wkls.us.ca.search("zzznope")).split("\n")[0]
+    assert header == "Wkl(rows=0)"
+
+
+def test_module_docstring_leads_with_quickstart():
+    """help(wkls) should show agents the key patterns within the first screen."""
+    doc = wkls.__doc__ or ""
+    assert "Quickstart:" in doc
+    # Disambiguation must be advertised up front, not buried.
+    assert "AmbiguousLocationError" in doc
+    assert "subtype modifier" in doc
+    assert "parent narrower" in doc
+    assert "by_id(" in doc
+
+
 # ---------- Basic chain access smoke ----------
 
 
