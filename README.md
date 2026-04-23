@@ -103,16 +103,22 @@ wkls.us.ca.search("san francisco")  # anywhere in California
 ```
 
 Results come back as a `Wkl` — the same type every other access returns.
-Call `.count()`, `.to_arrow_table()`, etc. for inspection, or `.wkt()` /
-`.wkb()` / `.geojson()` on a single-row result to fetch geometry in one
-step.
+Call `.count()`, `.head()`, `.to_arrow_table()`, or `.to_dicts()` for
+inspection, or `.wkt()` / `.wkb()` / `.geojson()` on a single-row
+result to fetch geometry in one step. `.to_dicts()` is the easiest
+way to iterate rows in plain Python:
+
+```python
+non_us = [r for r in wkls.search("franklin").to_dicts() if r["country"] != "US"]
+```
 
 ### Resolving ambiguity
 
 Some locations share names. 18 Pennsylvania townships are named "Franklin";
 "Mission" matches a locality, a county, and a localadmin in California.
 When a chain resolves to more than one row, geometry methods raise
-`AmbiguousLocationError` rather than silently picking one.
+`AmbiguousLocationError` rather than silently picking one — and the
+error message lists copy-pasteable chains to run next.
 
 Three dot-faithful ways to disambiguate:
 
@@ -129,11 +135,22 @@ wkls.us.ca.mission.county     # narrows to subtype=county
 wkls.us.pa.adamscounty.franklin.wkt()   # Franklin township in Adams County
 ```
 
-**`by_id()` escape hatch** — when neither dot path can narrow, pick by UUID:
+**Intermediate ambiguity** — if the *middle* of a chain is ambiguous
+(e.g. `wkls.us.pa.york` matches both a locality and a county), don't
+try to add `.county` as a separate step. Use the unambiguous full
+normalized name of the intermediate row:
 
 ```python
-uid = wkls.us.ca.search("mission").to_arrow_table().column("id")[0].as_py()
-wkls.by_id(uid).wkt()
+wkls.us.pa.york.wkt()                   # raises — ambiguous
+wkls.us.pa.yorkcounty.franklin.wkt()    # ✓ pick the County, then drill
+```
+
+**`by_id()` escape hatch** — when no dot path can narrow, pick by UUID.
+The ambiguity error lists each candidate's id as a literal
+`wkls.by_id('...').wkt()` line so you can copy-paste directly:
+
+```python
+wkls.by_id('273bc9a0-96a1-402c-992c-84f5c2f212cb').wkt()
 ```
 
 ### Navigating the hierarchy

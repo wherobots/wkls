@@ -318,7 +318,9 @@ _DIR_CITY_METHODS = frozenset({"geojson", "parent", "path", "wkb", "wkt"})
 # Result-mode: DataFrame passthroughs that make sense to surface on a
 # multi-row Wkl. Keep this to the common inspection verbs — sedona's
 # DataFrame has a wider surface but listing everything would be noise.
-_DIR_DATAFRAME_METHODS = frozenset({"count", "head", "limit", "show", "to_arrow_table"})
+_DIR_DATAFRAME_METHODS = frozenset(
+    {"count", "head", "limit", "show", "to_arrow_table", "to_dicts"}
+)
 
 
 def _normalize_name(name: str | None) -> str:
@@ -576,8 +578,7 @@ class Wkl:
             lines.append("")
             for c in candidates:
                 lines.append(
-                    f"  {where}.{c['subtype']:<12}"
-                    f"  # {c['name']} ({c['subtype']})"
+                    f"  {where}.{c['subtype']:<12}  # {c['name']} ({c['subtype']})"
                 )
         elif self.chain and attrs_differ:
             lines.append(
@@ -586,8 +587,7 @@ class Wkl:
             lines.append("")
             for c in candidates:
                 lines.append(
-                    f"  {chain_prefix}.{c['attr']:<18}"
-                    f"  # {c['name']} ({c['subtype']})"
+                    f"  {chain_prefix}.{c['attr']:<18}  # {c['name']} ({c['subtype']})"
                 )
         elif self.chain and parents_differ:
             lines.append(
@@ -1493,6 +1493,21 @@ class Wkl:
             ValueError: If no results found for the location chain.
         """
         return self._get_geom_expr("ST_AsGeoJSON(geometry)")
+
+    def to_dicts(self) -> list[dict[str, Any]]:
+        """Return the rows as a list of plain Python dicts.
+
+        Convenience for quick iteration and filtering — avoids the
+        pyarrow.Table API. Equivalent to
+        ``self.to_arrow_table().to_pylist()``.
+
+        Example:
+            >>> non_us = [
+            ...     r for r in wkls.search("franklin").to_dicts()
+            ...     if r["country"] != "US"
+            ... ]
+        """
+        return self.resolve().to_arrow_table().to_pylist()
 
     def svg(self, relative: bool = False, precision: int = 15) -> str:
         """Get SVG path geometry for the first result.
