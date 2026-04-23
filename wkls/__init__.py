@@ -41,9 +41,6 @@ Every call returns a Wkl — one unified type. Inspect with .count(),
 .head(), .to_arrow_table(); extract geometry with .wkt() / .wkb() /
 .geojson() when the Wkl holds exactly one row.
 
-For the full agent reference including error handling patterns:
-    >>> print(wkls.__llm_guide__)
-
 Two ways to use the library:
 
     >>> import wkls                        # module-level ergonomics
@@ -57,7 +54,6 @@ Two ways to use the library:
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
-from pathlib import Path
 from typing import Any
 
 from .core import Wkl
@@ -68,20 +64,6 @@ try:
     __version__ = version("wkls")
 except PackageNotFoundError:
     __version__ = "0.0.0.dev"
-
-
-def _load_llm_guide() -> str:
-    """Load AGENTS.md from the installed wheel or the dev repo root."""
-    pkg_path = Path(__file__).parent / "AGENTS.md"
-    if pkg_path.exists():
-        return pkg_path.read_text(encoding="utf-8")
-    repo_path = Path(__file__).parent.parent / "AGENTS.md"
-    if repo_path.exists():
-        return repo_path.read_text(encoding="utf-8")
-    return ""
-
-
-__llm_guide__: str = _load_llm_guide()
 
 
 _instance: Wkl | None = None
@@ -113,7 +95,7 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
-    module_attrs = list(__all__) + ["__version__", "__llm_guide__"]
+    module_attrs = list(__all__) + ["__version__"]
     try:
         wkl_attrs = dir(_get_instance())
     except Exception:

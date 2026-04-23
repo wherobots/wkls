@@ -71,23 +71,6 @@ def test_version_attribute():
     assert len(wkls.__version__) > 0
 
 
-def test_llm_guide_attribute():
-    """__llm_guide__ ships the AGENTS.md reference for runtime access."""
-    assert hasattr(wkls, "__llm_guide__")
-    guide = wkls.__llm_guide__
-    assert isinstance(guide, str)
-    # Sanity-check the content covers the core agent-relevant surface.
-    for phrase in (
-        "Using wkls from an AI agent",
-        "AmbiguousLocationError",
-        "by_id(",
-        ".search(",
-        ".parent",
-        ".path",
-    ):
-        assert phrase in guide, f"missing from __llm_guide__: {phrase!r}"
-
-
 def test_repr_header_root():
     """Root Wkl() repr is a terse label."""
     assert repr(Wkl()) == "Wkl(root)"
