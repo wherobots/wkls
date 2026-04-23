@@ -56,6 +56,11 @@ _S3_DIVISION_AREA_SUFFIX = "theme=divisions/type=division_area/"
 # Module-level state for the active Overture version
 _current_overture_version: str | None = None
 
+# True once the remote GeoParquet has been registered as the
+# ``overture`` SedonaDB view. Flipped by ``_ensure_overture_loaded``
+# (lazy, on first geometry call) or by ``configure()``.
+_overture_view_loaded: bool = False
+
 
 def _list_s3_releases() -> list[str]:
     """List all available Overture Maps releases on S3.
@@ -161,17 +166,16 @@ def _log_and_query(
 
 
 def _initialize_table() -> sedonadb.SedonaContext:
-    """Initialize the wkls table and Overture data views.
+    """Initialize the SedonaDB context and register the local metadata view.
 
-    Creates SedonaDB views for the local metadata table and remote
-    Overture Maps GeoParquet data. Auto-detects the latest Overture
-    release unless overridden by the ``WKLS_OVERTURE_VERSION`` env var.
+    Creates the ``wkls`` SedonaDB view from the bundled local parquet —
+    pure local I/O, no network. The remote ``overture`` view is
+    registered lazily by ``_ensure_overture_loaded`` on first geometry
+    call, so ``import wkls`` stays offline-safe.
 
     Returns:
         Configured SedonaContext instance.
     """
-    global _current_overture_version
-
     sedona = sedonadb.connect()
 
     # Enable interactive mode for auto-display
@@ -186,19 +190,40 @@ def _initialize_table() -> sedonadb.SedonaContext:
         f"{importlib.resources.files(data)}/overture.zstd18.parquet"
     ).to_view("wkls")
 
-    _current_overture_version = _resolve_overture_version()
+    return sedona
+
+
+# Initialize the table when the module is imported
+sedona = _initialize_table()
+
+
+def _ensure_overture_loaded() -> None:
+    """Register the remote Overture GeoParquet view on first geometry access.
+
+    Resolves the active Overture version (via ``WKLS_OVERTURE_VERSION``,
+    module-level cache, or an S3 listing), then registers the remote
+    GeoParquet as the ``overture`` SedonaDB view. Idempotent — later
+    calls short-circuit on ``_overture_view_loaded``. ``configure()``
+    sets the flag too, so a user-driven reload keeps the fast path.
+
+    Raises:
+        ConnectionError: If the S3 listing or parquet read fails. The
+            message points at the network requirement.
+    """
+    global _current_overture_version, _overture_view_loaded
+    if _overture_view_loaded:
+        return
+    if _current_overture_version is None:
+        _current_overture_version = _resolve_overture_version()
     sedona.read_parquet(
         _overture_uri(_current_overture_version),
         options={
             "aws.skip_signature": True,
             "aws.region": "us-west-2",
         },
-    ).to_view("overture")
-    return sedona
+    ).to_view("overture", overwrite=True)
+    _overture_view_loaded = True
 
-
-# Initialize the table when the module is imported
-sedona = _initialize_table()
 
 # Cache for country identifier -> (canonical ISO, has_region).
 # Keyed by the lowercased raw identifier (ISO or name); populated once per
@@ -739,18 +764,25 @@ class Wkl:
         """Return the version of the Overture Maps dataset being used.
 
         This method is only available at the root level (wkls.overture_version()),
-        not on chained objects.
+        not on chained objects. Resolves the version lazily on first
+        call — this is an S3 listing request, so it requires network
+        access (but is cheap compared to loading the parquet itself).
 
         Returns:
             Version string of the Overture Maps dataset.
 
         Raises:
             ValueError: If called on a chained object.
+            ConnectionError: If the version hasn't been resolved yet
+                and the S3 listing fails.
         """
+        global _current_overture_version
         if self.chain:
             raise ValueError(
                 "overture_version() is only available at the root level. Use wkls.overture_version(), not wkls.us.overture_version()."
             )
+        if _current_overture_version is None:
+            _current_overture_version = _resolve_overture_version()
         return _current_overture_version
 
     def overture_releases(self) -> list[str]:
@@ -798,7 +830,7 @@ class Wkl:
             >>> wkls.overture_version()
             '2025-12-17.0'
         """
-        global _current_overture_version
+        global _current_overture_version, _overture_view_loaded
 
         if self.chain:
             raise ValueError(
@@ -826,6 +858,7 @@ class Wkl:
                 "aws.region": "us-west-2",
             },
         ).to_view("overture", overwrite=True)
+        _overture_view_loaded = True
 
     def __getattr__(self, attr: str) -> Any:
         """Handle attribute access.
@@ -1281,7 +1314,10 @@ class Wkl:
         Raises:
             ValueError: If no results found or no geometry exists.
             AmbiguousLocationError: If the resolved DataFrame has >1 row.
+            ConnectionError: If the remote Overture data can't be
+                registered (first geometry call only; requires S3 access).
         """
+        _ensure_overture_loaded()
         df = self.resolve()
         row_count = df.count()
         if row_count == 0:
