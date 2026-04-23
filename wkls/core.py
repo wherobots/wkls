@@ -374,65 +374,14 @@ def _build_error_hint(chain: list[str], suggestions: list[str]) -> str:
 
 
 class Wkl:
-    """Well-Known Locations — access global administrative boundaries.
+    """Administrative boundaries via dot access.
 
-    Provides chainable access to Overture Maps administrative boundary
-    geometries via Apache SedonaDB. Chain country → region → place using
-    dot notation with names or ISO codes.
+    For full usage (chaining, disambiguation, listing, navigation,
+    errors), see ``help(wkls)``.
 
-    Quick Start (two ways to use):
-
-        >>> import wkls                               # ergonomic
+    Example:
+        >>> import wkls
         >>> wkls.us.ca.sanfrancisco.wkt()
-        >>> wkls.india.maharashtra.wkt()
-
-        >>> from wkls import Wkl                      # explicit
-        >>> wkl = Wkl()
-        >>> wkl.us.ca.sanfrancisco.wkt()
-        >>> wkl.us.california.sanfrancisco.wkt()      # full name works too
-
-    Chaining (3 levels max):
-
-        Level 1 — Country:  ``wkls.us``  OR  ``wkls.unitedstates``
-        Level 2 — Region:   ``wkls.us.ca``  OR  ``wkls.us.california``
-        Level 3 — Place:    ``wkls.us.ca.sanfrancisco``
-
-    Name Rules:
-        Names are lowercase, spaces removed:
-
-        - "San Francisco" → ``sanfrancisco``
-        - "New York"      → ``newyork``
-        - "United States" → ``unitedstates``
-        - ISO codes also work: ``us``, ``ca``, ``gb``, ``de``, ``jp``…
-
-        Names that contain diacritics or punctuation in ``name_en``
-        (e.g., Côte d'Ivoire, São Paulo) are not Python-typable — fall
-        back to the ISO code: ``wkls.ci``, ``wkls.br.sp``.
-
-    Geometry Formats:
-        - ``.wkt()``     → str   (Well-Known Text)
-        - ``.wkb()``     → bytes (Well-Known Binary)
-        - ``.geojson()`` → str   (GeoJSON)
-
-    Discovery:
-        - ``wkls.countries()``         DataFrame of all 219 countries
-        - ``wkls.us.regions()``        DataFrame of US regions
-        - ``wkls.us.ca.cities()``      DataFrame of CA cities
-
-    Configuration:
-        - ``wkls.overture_version()``  Current Overture version
-        - ``wkls.overture_releases()`` All available versions
-        - ``wkls.configure(overture_version="2025-12-17.0")``
-
-    Environment Variables:
-        - ``WKLS_DEBUG=true``  Print all SQL queries to stdout
-
-    Arrow Interop:
-        >>> import pyarrow as pa
-        >>> pa.array(wkls.us.ca.sanfrancisco)  # geoarrow.wkb array
-
-    Attributes:
-        chain: List of location identifiers in the chain.
     """
 
     _has_region: bool = True

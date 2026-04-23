@@ -114,6 +114,12 @@ def test_module_docstring_leads_with_quickstart():
     assert "subtype modifier" in doc
     assert "parent narrower" in doc
     assert "by_id(" in doc
+    # Intermediate ambiguity — the York-in-PA case from the agent test.
+    assert "yorkcounty" in doc
+    # Scoped search must be the lead example (before global .search()).
+    assert "wkls.au.search" in doc or "wkls.us.tn.search" in doc
+    # to_dicts mentioned as the iteration helper.
+    assert "to_dicts()" in doc
 
 
 # ---------- Basic chain access smoke ----------
