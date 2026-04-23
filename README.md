@@ -115,19 +115,13 @@ non_us = [r for r in wkls.search("franklin").to_dicts() if r["country"] != "US"]
 ### Resolving ambiguity
 
 Some locations share names. 18 Pennsylvania townships are named "Franklin";
-"Mission" matches a locality, a county, and a localadmin in California.
-When a chain resolves to more than one row, geometry methods raise
-`AmbiguousLocationError` rather than silently picking one — and the
-error message lists copy-pasteable chains to run next.
+"York" in PA matches both a locality and a county. When a chain resolves
+to more than one row, geometry methods raise `AmbiguousLocationError`
+rather than silently picking one — and the error message lists
+copy-pasteable chains to run next.
 
-Three dot-faithful ways to disambiguate:
-
-**Subtype modifier** — when candidates differ by subtype, pick one:
-
-```python
-wkls.us.ca.mission.locality   # narrows to subtype=locality
-wkls.us.ca.mission.county     # narrows to subtype=county
-```
+Dot access is strictly admin-hierarchy. One way to narrow is via the
+chain; one escape hatch covers everything else.
 
 **4-level parent narrower** — name the parent in the chain:
 
@@ -136,9 +130,8 @@ wkls.us.pa.adamscounty.franklin.wkt()   # Franklin township in Adams County
 ```
 
 **Intermediate ambiguity** — if the *middle* of a chain is ambiguous
-(e.g. `wkls.us.pa.york` matches both a locality and a county), don't
-try to add `.county` as a separate step. Use the unambiguous full
-normalized name of the intermediate row:
+(e.g. `wkls.us.pa.york` matches both a locality and a county), use
+the unambiguous full normalized name of the intermediate row:
 
 ```python
 wkls.us.pa.york.wkt()                   # raises — ambiguous

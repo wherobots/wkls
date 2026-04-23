@@ -17,17 +17,15 @@ too: wkls.us, wkls.unitedstates, wkls.us.ca, wkls.us.california.
 
 Resolving ambiguity — when a chain resolves to >1 row, geometry
 methods raise AmbiguousLocationError (a ValueError subclass) with a
-list of candidates and copy-paste-ready chains. Three dot-faithful
-ways to narrow, plus an escape hatch:
+list of candidates and copy-paste-ready chains. Dot access is strictly
+admin-hierarchy — one way to narrow is via the chain, one escape hatch:
 
-    wkls.us.ca.mission.locality            # (a) subtype modifier, at the leaf
-    wkls.us.pa.adamscounty.franklin        # (b) 4-level parent narrower
-    wkls.by_id('273bc9a0-...')             # (c) exact pick (UUID from the error)
+    wkls.us.pa.adamscounty.franklin        # (a) 4-level parent narrower
+    wkls.by_id('273bc9a0-...')             # (b) exact pick (UUID from the error)
 
 When an *intermediate* chain step is ambiguous (e.g. 'york' in PA is
-both a locality and a county), don't try to add a subtype step —
-chains are capped at 4 levels and .county is not a valid chain step.
-Use the unambiguous full normalized name of the intermediate row:
+both a locality and a county), pick the unambiguous full normalized
+name of the intermediate row:
 
     wkls.us.pa.york.wkt()                  # raises — 'york' is ambiguous
     wkls.us.pa.yorkcounty.franklin.wkt()   # ✓ pick the County unambiguously,

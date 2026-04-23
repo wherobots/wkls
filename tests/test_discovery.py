@@ -101,14 +101,28 @@ def test_dir_country_level_has_path_but_not_parent():
     assert "parent" not in entries
 
 
-def test_dir_result_mode_multi_row_exposes_narrowers():
-    """dir() on an ambiguous result surfaces the subtype modifiers
-    recommended by AmbiguousLocationError, plus DataFrame verbs, and
-    omits geometry methods that would raise."""
+def test_dir_result_mode_multi_row_exposes_inspection_verbs_only():
+    """dir() on an ambiguous result shows DataFrame inspection verbs only.
+
+    Dot access is admin-hierarchy; there are no in-place filters to
+    advertise. Geometry methods are omitted because they'd raise on
+    multi-row.
+    """
     entries = set(dir(wkls.us.ca.search("san francisco")))
-    assert {"county", "locality"}.issubset(entries)  # narrowers
-    assert {"count", "head", "to_arrow_table"}.issubset(entries)  # df verbs
+    assert {"count", "head", "to_arrow_table", "to_dicts"}.issubset(entries)
     assert entries.isdisjoint({"wkt", "wkb", "geojson"})  # geometry would raise
+    # No subtype narrowers — those were removed.
+    for subtype in (
+        "country",
+        "dependency",
+        "region",
+        "county",
+        "locality",
+        "localadmin",
+    ):
+        assert subtype not in entries, (
+            f"dir() should not advertise subtype '{subtype}' as a narrower"
+        )
 
 
 def test_dir_result_mode_single_row_exposes_geometry_and_nav():

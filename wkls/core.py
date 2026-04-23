@@ -264,14 +264,6 @@ def sqlescape(v: str) -> str:
     return sqlescapy.sqlescape(v).replace("\\%", "%")
 
 
-# Closed vocabulary of Overture subtypes that wkls bundles. When used
-# as an attribute access (e.g. `wkls.us.ca.mission.locality`) the name
-# filters the current result set by subtype — "subtype modifier." Kept
-# as a frozenset so the check in __getattr__ is O(1).
-_SUBTYPE_NAMES = frozenset(
-    {"country", "dependency", "region", "county", "locality", "localadmin"}
-)
-
 # Methods surfaced by __dir__ at each chain depth.
 _DIR_ROOT_METHODS = frozenset(
     {
@@ -564,7 +556,16 @@ class Wkl:
                 }
             )
 
-        subtypes_differ = len({c["subtype"] for c in candidates}) > 1
+        # Dots only step through the admin hierarchy. The two cases where
+        # a chain narrower can resolve the ambiguity:
+        #   1. Candidates have different normalized names (e.g. York vs
+        #      YorkCounty) — swap the last chain segment for the
+        #      unambiguous form.
+        #   2. Candidates share a normalized name but have different
+        #      parents (e.g. 18 Franklins in PA counties) — use the
+        #      4-level parent narrower.
+        # Anything else (same name + same parent, or no chain context)
+        # can only be resolved by picking a specific UUID.
         attrs_differ = len({c["attr"] for c in candidates}) > 1
         parents_differ = len({c["parent_attr"] for c in candidates}) > 1
 
@@ -573,14 +574,7 @@ class Wkl:
             "wkls." + ".".join(self.chain[:-1]) if len(self.chain) >= 1 else "wkls"
         )
 
-        if self.chain and subtypes_differ:
-            lines.append(f"{n} matches for '{where}'. Narrow by subtype:")
-            lines.append("")
-            for c in candidates:
-                lines.append(
-                    f"  {where}.{c['subtype']:<12}  # {c['name']} ({c['subtype']})"
-                )
-        elif self.chain and attrs_differ:
+        if self.chain and attrs_differ:
             lines.append(
                 f"{n} matches for '{where}'. Use the unambiguous normalized name:"
             )
@@ -602,8 +596,8 @@ class Wkl:
                         f"  # {c['name']} in {parent_label}"
                     )
         else:
-            # Same subtype, same attr, same parent (or no chain to narrow) —
-            # dot paths can't distinguish these. by_id is the only way.
+            # Same attr + same parent (or no chain to narrow) — dot
+            # paths can't distinguish these. by_id is the only way.
             lines.append(
                 f"{n} matches for '{where}'. No dot-access narrower "
                 "distinguishes these — use by_id:"
@@ -912,32 +906,6 @@ class Wkl:
                 f"'{self.__class__.__name__}' object has no attribute '{attr}'"
             )
 
-        # Subtype modifier: when the attr is a known subtype name
-        # (closed vocabulary) and we're holding a multi-row result,
-        # filter by subtype rather than drilling. Applies in both
-        # chain-mode and result-mode. Purely additive — subtype names
-        # don't collide with country/region/city names.
-        if attr.lower() in _SUBTYPE_NAMES and self._df is not None:
-            df = self._df
-            row_count = df.count()
-            if row_count > 1:
-                # Register current df as a temp view then filter in SQL.
-                # `overwrite=True` lets us reuse the view name across calls.
-                df.to_view("_wkls_subtype_filter", overwrite=True)
-                filtered = sedona.sql(
-                    f"SELECT * FROM _wkls_subtype_filter "
-                    f"WHERE subtype = '{sqlescape(attr.lower())}'"
-                )
-                # Preserve chain so .path etc. still reflect the chain position.
-                new_wkl = Wkl(list(self.chain), _df=filtered)
-                new_wkl._country_iso = self._country_iso
-                return new_wkl
-            # Single row: if it matches the subtype, keep as-is; otherwise
-            # fall through so the attr is treated as a location name.
-            row = df.head(1).to_arrow_table()
-            if row.column("subtype")[0].as_py() == attr.lower():
-                return self
-
         # Result-mode: pass through to the cached DataFrame so standard
         # ops (count, to_arrow_table, head, show, …) keep working.
         if not self.chain and self._df is not None:
@@ -1022,17 +990,10 @@ class Wkl:
             return base
         if row_count == 1:
             return base | _DIR_CITY_METHODS
-        # Multi-row: surface subtype modifiers actually present in
-        # the result so callers can narrow ambiguity.
-        self._df.to_view("_wkls_dir_subtypes", overwrite=True)
-        subtypes_tbl = sedona.sql(
-            "SELECT DISTINCT subtype FROM _wkls_dir_subtypes"
-        ).to_arrow_table()
-        present = {
-            subtypes_tbl.column("subtype")[i].as_py()
-            for i in range(subtypes_tbl.num_rows)
-        }
-        return base | (present & _SUBTYPE_NAMES)
+        # Multi-row: only the DataFrame inspection verbs. Dot access
+        # is admin-hierarchy only — there's no in-place subtype filter,
+        # so nothing else belongs in the surface here.
+        return base
 
     def _dir_countries(self) -> list[str]:
         """Return cached country-level dir entries (ISO codes + names)."""

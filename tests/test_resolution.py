@@ -111,7 +111,6 @@ def test_module_docstring_leads_with_quickstart():
     assert "Quickstart:" in doc
     # Disambiguation must be advertised up front, not buried.
     assert "AmbiguousLocationError" in doc
-    assert "subtype modifier" in doc
     assert "parent narrower" in doc
     assert "by_id(" in doc
     # Intermediate ambiguity — the York-in-PA case from the agent test.
