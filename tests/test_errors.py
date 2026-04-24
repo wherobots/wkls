@@ -157,8 +157,8 @@ def test_suggestions_via_Wkl_bracket_access(ignore_bracket_deprecation):
 # ---------- Error propagation on chained Wkl ----------
 
 
-def test_chainable_df_propagates_root_only_errors():
-    """Root-only methods are hidden on chained Wkl instances."""
-    us_df = wkls.us
-    with pytest.raises(AttributeError):
-        us_df.countries()
+def test_chainable_df_hides_root_only_config_methods():
+    """Config methods (configure, overture_*) are hidden on chained Wkls."""
+    us = wkls.us
+    for name in ("configure", "overture_version", "overture_releases"):
+        assert not hasattr(us, name), f"{name} should be hidden on chained Wkl"
