@@ -381,8 +381,11 @@ class Wkl:
     _has_region: bool = True
 
     # Methods that only make sense on the root `Wkl`. Hidden from chained
-    # and result-mode instances so `hasattr(wkls.us, "configure")` is False,
-    # matching the pre-unification contract.
+    # instances so `hasattr(wkls.us, "configure")` is False — matching the
+    # pre-unification contract. ``_LISTING_ROOT_METHODS`` is the subset
+    # that, while hidden on chain-mode, *is* allowed through on
+    # result-mode (empty chain + cached DataFrame) so it can narrow
+    # within the prior result. Config methods stay strictly root-only.
     _ROOT_ONLY_METHODS = frozenset(
         {
             "configure",
@@ -390,6 +393,7 @@ class Wkl:
             "overture_version",
         }
     )
+    _LISTING_ROOT_METHODS = frozenset({"countries", "dependencies", "subtypes"})
 
     def __getattribute__(self, name: str) -> Any:
         if name in type(self)._ROOT_ONLY_METHODS:
@@ -397,7 +401,13 @@ class Wkl:
             # this hook — use object.__getattribute__.
             chain = object.__getattribute__(self, "chain")
             df = object.__getattribute__(self, "_df")
-            if chain or df is not None:
+            if chain:
+                raise AttributeError(
+                    f"'{type(self).__name__}' object has no attribute '{name}'"
+                )
+            # Result-mode (df set, no chain): listing methods pass
+            # through to narrow; config methods stay blocked.
+            if df is not None and name not in type(self)._LISTING_ROOT_METHODS:
                 raise AttributeError(
                     f"'{type(self).__name__}' object has no attribute '{name}'"
                 )
@@ -1503,11 +1513,14 @@ class Wkl:
     def dependencies(self) -> Wkl:
         """List dependencies (territories, overseas regions, etc.) in scope.
 
-        Scope narrows with chain depth, matching the other listing
-        methods. ``wkls.dependencies()`` at root lists every dependency
-        in the dataset; at any other depth, results are filtered to
-        dependencies within the current country chain. A dependency
-        chain (e.g. ``wkls.pr``) returns itself.
+        Scope narrows with the current Wkl's mode:
+
+        - **Root** (``wkls.dependencies()``): every dependency worldwide.
+        - **Chain-mode** (``wkls.us.dependencies()``): dependencies
+          within the current country chain (empty for country chains
+          like US; ``[self]`` on a dependency chain like PR).
+        - **Result-mode** (chained after ``.search(...)`` etc.): the
+          subset of the prior rows whose subtype is ``'dependency'``.
 
         Returns:
             A result-mode ``Wkl`` wrapping the matching rows.
@@ -1517,11 +1530,13 @@ class Wkl:
     def countries(self) -> Wkl:
         """List countries in scope.
 
-        Scope narrows with chain depth, matching the other listing
-        methods. ``wkls.countries()`` at root lists every country in
-        the dataset; at any other depth, the result is the one country
-        that contains the current chain (``wkls.us.countries()`` →
-        ``[US]``).
+        Scope narrows with the current Wkl's mode:
+
+        - **Root** (``wkls.countries()``): every country worldwide.
+        - **Chain-mode** (``wkls.us.countries()``): the one country
+          that contains the current chain.
+        - **Result-mode** (chained after ``.search(...)`` etc.): the
+          subset of the prior rows whose subtype is ``'country'``.
 
         Returns:
             A result-mode ``Wkl`` wrapping the matching rows.
@@ -1531,11 +1546,19 @@ class Wkl:
     def _list_top_level_subtype(self, subtype: str) -> Wkl:
         """Shared implementation for ``countries()`` / ``dependencies()``.
 
-        Both list a top-level subtype. At root, return every row of that
-        subtype. On any chain, filter by the current country so the
-        result is bound to the chain's scope (one row for the
-        matching country / dependency, or empty otherwise).
+        Both list a top-level subtype. Behavior by mode:
+
+        - **Result-mode** (empty chain, cached DataFrame): filter the
+          prior rows to those with the requested subtype.
+        - **Root** (empty chain, no DataFrame): every row of that
+          subtype worldwide.
+        - **Chain-mode**: filter by the current country so the result
+          is bound to the chain's scope (one row for the matching
+          country / dependency, or empty otherwise).
         """
+        if not self.chain and self._df is not None:
+            return self._narrow_result_mode_by_subtypes(f"('{subtype}')")
+
         if not self.chain:
             query = f"""
                 SELECT DISTINCT id, country, subtype, name_primary, name_en
@@ -1567,8 +1590,39 @@ class Wkl:
         """
         return self._list_subtype("('region')", "regions")
 
+    def _narrow_result_mode_by_subtypes(self, subtype_filter: str) -> Wkl:
+        """Filter a result-mode ``Wkl``'s cached DataFrame by subtype.
+
+        Shared helper for ``countries()`` / ``dependencies()`` /
+        ``regions()`` / ``counties()`` / ``cities()`` to implement
+        the "listing method narrows within the prior result" behavior
+        uniformly. Callers must ensure they're in result-mode (empty
+        chain, ``_df`` set) before invoking.
+
+        Args:
+            subtype_filter: SQL subtype filter in IN-list form,
+                e.g. ``"('county')"`` or ``"('locality', 'localadmin')"``.
+
+        Returns:
+            A result-mode ``Wkl`` wrapping the filtered rows.
+        """
+        assert self._df is not None and not self.chain
+        self._df.to_view("_wkls_list_within", overwrite=True)
+        sql = f"SELECT * FROM _wkls_list_within WHERE subtype IN {subtype_filter}"
+        return Wkl(_df=sedona.sql(sql))
+
     def _list_subtype(self, subtype_filter: str, method_name: str) -> Wkl:
-        """List rows of the given subtype within the current chain scope.
+        """List rows of the given subtype within the current scope.
+
+        Scope is determined by the current Wkl's mode:
+
+        - **Result-mode** (empty chain, cached DataFrame): filter the
+          prior rows. Lets callers chain, e.g.
+          ``wkls.us.search('san').counties()``.
+        - **Root** (empty chain, no DataFrame): every row of the
+          requested subtype worldwide.
+        - **Chain-mode**: scoped by country (depth 1) / region
+          (depth 2), or by parent_id + self (depth ≥ 3).
 
         Args:
             subtype_filter: SQL subtype filter, e.g. ``"('county')"`` or
@@ -1582,6 +1636,11 @@ class Wkl:
             ValueError: If called on a chain that resolves to more than
                 one row past region level (can't scope by a single parent).
         """
+        # Result-mode: narrow within the cached DataFrame. Shared with
+        # countries/dependencies/subtypes via _narrow_result_mode_by_subtypes.
+        if not self.chain and self._df is not None:
+            return self._narrow_result_mode_by_subtypes(subtype_filter)
+
         depth = len(self.chain)
 
         if depth == 0:
@@ -1674,20 +1733,25 @@ class Wkl:
     def subtypes(self) -> Wkl:
         """List distinct division subtypes in scope.
 
-        Scope narrows with chain depth, matching the other listing
-        methods. ``wkls.subtypes()`` at root enumerates every subtype
-        in the dataset; at a country or region chain, the result is
-        restricted to subtypes present within that scope (e.g.
-        ``wkls.fk.subtypes()`` shows the Falklands lack regions).
+        Scope is determined by the current Wkl's mode:
 
-        Returns:
-            A result-mode ``Wkl`` wrapping the distinct subtype rows.
+        - **Root** (``wkls.subtypes()``): every subtype in the dataset.
+        - **Chain-mode** (``wkls.us.subtypes()`` / ``wkls.us.ca.subtypes()``):
+          subtypes present within that chain's subtree (e.g.
+          ``wkls.fk.subtypes()`` shows the Falklands lack regions).
+        - **Result-mode** (chained after ``.search(...)`` etc.):
+          distinct subtypes present in the prior rows.
 
         Raises:
             ValueError: If the chain resolves to more than one row past
                 region level (same single-row requirement as
                 ``counties()`` / ``cities()``).
         """
+        # Result-mode: narrow within the cached DataFrame.
+        if not self.chain and self._df is not None:
+            self._df.to_view("_wkls_list_within", overwrite=True)
+            return Wkl(_df=sedona.sql("SELECT DISTINCT subtype FROM _wkls_list_within"))
+
         depth = len(self.chain)
 
         if depth == 0:
@@ -1735,16 +1799,21 @@ class Wkl:
     def search(self, query: str) -> Wkl:
         """Search for locations whose names contain a substring.
 
-        Searches every row within the current chain's scope — countries,
-        dependencies, regions, counties, and localities alike — and returns
-        matches as a result-mode ``Wkl``. Rows carry a ``subtype`` column
-        so callers can tell what they got back.
+        Searches every row within the current ``Wkl``'s scope —
+        countries, dependencies, regions, counties, and localities
+        alike — and returns matches as a result-mode ``Wkl``. Rows
+        carry a ``subtype`` column so callers can tell what they got
+        back.
 
-        The scope narrows with chain depth:
+        Scope is determined by the current ``Wkl``:
 
-        - ``wkls.search(q)``        — full dataset
-        - ``wkls.us.search(q)``     — everything under US
-        - ``wkls.us.ca.search(q)``  — everything under California
+        - **Root** (``wkls.search(q)``): full dataset.
+        - **Chain-mode** (``wkls.us.search(q)`` /
+          ``wkls.us.ca.search(q)``): scoped to that country or region.
+        - **Result-mode** (the output of a previous search or listing
+          call): narrows *within* the current rows, so chained calls
+          like ``wkls.us.ca.search('san').search('san francisco')``
+          progressively filter the same result set.
 
         Args:
             query: Search string. Matched against normalized forms of
@@ -1754,17 +1823,17 @@ class Wkl:
                 and ``"sanfrancisco"`` all match the same rows.
 
         Returns:
-            A result-mode ``Wkl`` of matching rows (id, country, region,
-            subtype, name_primary, name_en).
+            A result-mode ``Wkl`` of matching rows.
 
         Raises:
             ValueError: If called past city level (chain depth > 2).
 
         Examples:
             >>> import wkls
-            >>> wkls.search("san francisco")     # finds the city from root
-            >>> wkls.us.search("los angeles")    # scoped to US
-            >>> wkls.us.ca.search("san fran")    # scoped to California
+            >>> wkls.search("san francisco")              # full dataset
+            >>> wkls.us.search("los angeles")             # scoped to US
+            >>> wkls.us.ca.search("san")                  # scoped to CA
+            >>> wkls.us.ca.search("san").search("fran")   # narrow within
         """
         depth = len(self.chain)
         if depth > 2:
@@ -1776,6 +1845,17 @@ class Wkl:
         # Normalize to the dot-access form so ``search("sanfrancisco")``
         # and ``search("San Francisco")`` both match "San Francisco".
         escaped_query = sqlescape(_normalize_name(query))
+
+        # Result-mode: narrow within the already-resolved rows. The
+        # previous search/listing call has already scoped the data; a
+        # fresh global scan would ignore that scope entirely.
+        if depth == 0 and self._df is not None:
+            view_name = "_wkls_search_within"
+            self._df.to_view(view_name, overwrite=True)
+            sql = queries.SEARCH_WITHIN_VIEW.format(
+                view_name=view_name, query=escaped_query
+            )
+            return Wkl(_df=sedona.sql(sql))
 
         if depth == 0:
             sql = queries.SEARCH_ROOT.format(query=escaped_query)

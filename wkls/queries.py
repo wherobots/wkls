@@ -241,6 +241,16 @@ SEARCH_REGION = f"""
     ORDER BY COALESCE(name_en, name_primary) ASC
 """
 
+# Narrowing search on a result-mode Wkl: filter rows in an already-
+# resolved DataFrame (registered as a temp view) by the same
+# normalized name match. Lets callers chain ``.search()`` calls to
+# progressively narrow results.
+SEARCH_WITHIN_VIEW = f"""
+    SELECT * FROM {{view_name}}
+    WHERE {_SEARCH_NAME_MATCH}
+    ORDER BY COALESCE(name_en, name_primary) ASC
+"""
+
 # For city-level suggestions (Levenshtein fuzzy matching)
 # Use {region_filter} = "AND region = '{region}'" or "" for countries without regions
 SUGGEST_CITY = f"""
