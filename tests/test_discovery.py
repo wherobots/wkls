@@ -277,6 +277,84 @@ def test_search_chains_on_root_result_still_narrows():
     assert second.count() < first.count()
 
 
+# ---------- Listing methods narrow on result-mode ----------
+
+
+def test_counties_narrows_on_result_mode():
+    """counties() on a result-mode Wkl filters the prior rows to counties.
+
+    Regression: previously fired a fresh global scan, returning tens
+    of thousands of counties unrelated to the prior search.
+    """
+    prior = wkls.us.search("san")
+    assert prior.count() > 1
+    narrowed = prior.counties()
+    prior_ids = {
+        prior.to_arrow_table().column("id")[i].as_py() for i in range(prior.count())
+    }
+    tbl = narrowed.to_arrow_table()
+    for i in range(tbl.num_rows):
+        assert tbl.column("subtype")[i].as_py() == "county"
+        assert tbl.column("id")[i].as_py() in prior_ids
+
+
+def test_cities_narrows_on_result_mode():
+    """cities() on a result-mode Wkl filters to locality/localadmin rows."""
+    prior = wkls.us.search("san")
+    narrowed = prior.cities()
+    subtypes = {
+        narrowed.to_arrow_table().column("subtype")[i].as_py()
+        for i in range(narrowed.count())
+    }
+    assert subtypes.issubset({"locality", "localadmin"})
+
+
+def test_countries_narrows_on_result_mode():
+    """countries() on a result-mode Wkl filters to country rows in the prior result."""
+    # A name that doesn't match any country — should narrow to empty.
+    assert wkls.search("franklin").countries().count() == 0
+    # A name that does — should include at least that country.
+    united = wkls.search("united").countries()
+    tbl = united.to_arrow_table()
+    subtypes = {tbl.column("subtype")[i].as_py() for i in range(tbl.num_rows)}
+    assert subtypes == {"country"}
+    assert united.count() >= 1
+
+
+def test_dependencies_narrows_on_result_mode():
+    """dependencies() on a result-mode Wkl filters to dependency rows."""
+    result = wkls.search("united").dependencies()
+    tbl = result.to_arrow_table()
+    for i in range(tbl.num_rows):
+        assert tbl.column("subtype")[i].as_py() == "dependency"
+
+
+def test_subtypes_narrows_on_result_mode():
+    """subtypes() on a result-mode Wkl lists distinct subtypes in the prior rows."""
+    result = wkls.us.search("san").subtypes()
+    vals = {
+        result.to_arrow_table().column("subtype")[i].as_py()
+        for i in range(result.count())
+    }
+    # Must be a subset of real subtypes (no spurious global ones).
+    assert vals <= {
+        "country",
+        "dependency",
+        "region",
+        "county",
+        "locality",
+        "localadmin",
+    }
+    assert len(vals) >= 1
+
+
+def test_config_methods_still_hidden_on_result_mode():
+    """configure / overture_* are genuinely global — still hidden on result-mode."""
+    r = wkls.search("san")
+    for name in ("configure", "overture_version", "overture_releases"):
+        assert not hasattr(r, name), f"{name} should be hidden on result-mode"
+
+
 # ---------- to_dicts() ----------
 
 
