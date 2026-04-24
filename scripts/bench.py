@@ -79,6 +79,9 @@ def reset_caches() -> None:
     core._country_info.clear()
     core._region_info.clear()
     core._row_info.clear()
+    # `_country_info` is seeded at module import, so real post-import state
+    # starts with it populated — re-seed to match what cold users actually see.
+    core._seed_country_info()
 
 
 def time_once(code: str, sf_id: str) -> float:
