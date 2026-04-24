@@ -1130,44 +1130,33 @@ class Wkl:
         size at a glance. ``path=`` is used when the chain resolves to a
         single row (round-trippable); ``chain=`` is used otherwise.
         """
+        subtypes = self._subtype_counts()
+        row_count = sum(subtypes.values())
+
         parts: list[str] = []
         if self.chain:
             path_str = "wkls." + ".".join(self.chain)
-            key = "path" if self._is_single_row() else "chain"
+            key = "path" if row_count == 1 else "chain"
             parts.append(f"{key}='{path_str}'")
 
-        row_count = self._safe_row_count()
         parts.append(f"rows={row_count}")
 
-        if row_count >= 1:
-            subtypes = self._subtype_counts()
-            if len(subtypes) == 1:
-                st = next(iter(subtypes))
-                parts.append(f"subtype='{st}'")
-            elif subtypes:
-                body = ", ".join(f"{k}: {v}" for k, v in subtypes.items())
-                parts.append(f"subtypes={{{body}}}")
+        if len(subtypes) == 1:
+            st = next(iter(subtypes))
+            parts.append(f"subtype='{st}'")
+        elif subtypes:
+            body = ", ".join(f"{k}: {v}" for k, v in subtypes.items())
+            parts.append(f"subtypes={{{body}}}")
 
         return f"Wkl({', '.join(parts)})"
 
-    def _is_single_row(self) -> bool:
-        """True iff the resolved DataFrame holds exactly one row."""
-        try:
-            df = self._df if self._df is not None else self.resolve()
-            return df.count() == 1
-        except Exception:
-            return False
-
-    def _safe_row_count(self) -> int:
-        """Best-effort row count; 0 on failure so repr never throws."""
-        try:
-            df = self._df if self._df is not None else self.resolve()
-            return int(df.count())
-        except Exception:
-            return 0
-
     def _subtype_counts(self) -> dict[str, int]:
-        """Distinct subtypes with row counts, ordered by count descending."""
+        """Distinct subtypes with row counts, ordered by count descending.
+
+        One query serves the full repr header — total rows is the sum of
+        the values, single-row is ``sum == 1``. Empty dict on failure so
+        ``__repr__`` never throws.
+        """
         try:
             df = self._df if self._df is not None else self.resolve()
             df.to_view("_wkls_repr_subtypes", overwrite=True)
