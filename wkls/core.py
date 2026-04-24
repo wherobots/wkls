@@ -193,6 +193,28 @@ def _initialize_table() -> sedonadb.SedonaContext:
     return sedona
 
 
+def _seed_country_info() -> None:
+    """Populate ``_country_info`` for every country identifier in one pass.
+
+    Without this, each unique country access (``wkls.us``, ``wkls.unitedstates``,
+    etc.) fires two lookup queries the first time — and ``help(wkls)`` /
+    ``dir()`` introspection paths fan this out across ~438 identifiers.
+    Two small scans up front replace hundreds of queries on the cold path.
+    """
+    regions_tbl = sedona.sql(queries.COUNTRY_INFO_SEED_WITH_REGIONS).to_arrow_table()
+    has_region_isos: set[str] = {
+        regions_tbl.column("iso")[i].as_py() for i in range(regions_tbl.num_rows)
+    }
+    tbl = sedona.sql(queries.COUNTRY_INFO_SEED).to_arrow_table()
+    for i in range(tbl.num_rows):
+        iso = tbl.column("iso")[i].as_py()
+        name = tbl.column("name")[i].as_py()
+        value = (iso, iso in has_region_isos)
+        _country_info[iso.lower()] = value
+        if name:
+            _country_info[name] = value
+
+
 # Initialize the table when the module is imported
 sedona = _initialize_table()
 
@@ -247,6 +269,9 @@ _dir_cache: dict[tuple[str, ...], list[str]] = {}
 # id, country, region, subtype, name_primary, name_en, parent_division_id.
 # Populated by Wkl.by_id() and Wkl.parent.
 _row_info: dict[str, dict[str, object]] = {}
+
+
+_seed_country_info()
 
 
 def sqlescape(v: str) -> str:
@@ -870,6 +895,7 @@ class Wkl:
         _region_info.clear()
         _dir_cache.clear()
         _row_info.clear()
+        _seed_country_info()
         sedona.read_parquet(
             _overture_uri(overture_version),
             options={

@@ -190,6 +190,26 @@ DIR_COUNTRIES = f"""
     WHERE subtype IN ('country', 'dependency')
 """
 
+# One-shot seeds for `_country_info`. Returns every country identifier
+# (ISO + normalized name); a second query lists the isos with region
+# rows. Merged in Python because SedonaDB rejects ``IN (subquery)``.
+# Populated once at module import so ``_lookup_country`` hits the cache
+# for every valid input instead of firing two queries per access — a
+# big win on introspection paths (``help(wkls)`` fans to ~438 inputs).
+COUNTRY_INFO_SEED = f"""
+    SELECT DISTINCT
+      country                 AS iso,
+      {_CHAINABLE_NAME_EXPR}  AS name
+    FROM wkls
+    WHERE subtype IN ('country', 'dependency')
+"""
+
+COUNTRY_INFO_SEED_WITH_REGIONS = """
+    SELECT DISTINCT country AS iso
+    FROM wkls
+    WHERE subtype = 'region'
+"""
+
 # Country-level dir(): ISO suffixes and normalized names for one country's regions.
 DIR_REGIONS = f"""
     SELECT DISTINCT
