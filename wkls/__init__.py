@@ -44,10 +44,21 @@ so 'san francisco' / 'San Francisco' / 'sanfrancisco' all match.
     wkls.us.tn.search('franklin')          # Franklins in Tennessee only
     wkls.search('franklin')                # global — 125+ rows, use sparingly
 
-Every call returns a Wkl — one unified type. Inspect with .count(),
-.head(), .to_arrow_table(), or .to_dicts() for a plain list-of-dicts
-that's easy to iterate / filter in Python. Extract geometry with
-.wkt() / .wkb() / .geojson() when the Wkl holds exactly one row.
+Every call returns a Wkl — one unified type. Inspect like any Python
+sequence:
+
+    len(wkl)                               # row count
+    for row in wkl: row.wkt()              # iterate; each row is a Wkl
+    wkl[0], wkl[-1]                        # positional index
+    wkl[:5]                                # slice; returns a multi-row Wkl
+    '<uuid>' in wkl                        # id-column membership check
+    list(wkl), tuple(wkl)                  # standard collection conversions
+
+Also available: .count(), .head(n), .limit(n), .to_dicts(),
+.to_arrow_table(), .show(). For DataFrame ops beyond admin-boundary
+lookup (.filter, .join, .group_by, …), call .resolve() to drop to the
+underlying SedonaDB DataFrame. Extract geometry with .wkt() / .wkb() /
+.geojson() when the Wkl holds exactly one row.
 
 Navigation — .parent walks up one level; .path returns the canonical
 dot-chain string that round-trips via eval:

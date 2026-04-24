@@ -24,8 +24,10 @@ import os
 import re
 import urllib.request
 import xml.etree.ElementTree as ET
+from collections.abc import Iterator
 from typing import Any, Callable
 
+import pyarrow as pa
 import sedonadb
 import sqlescapy
 
@@ -347,6 +349,22 @@ _DIR_RESULT_NARROW_METHODS = frozenset(
     {"cities", "counties", "countries", "dependencies", "regions", "subtypes"}
 )
 
+# Surface 2 error messages. Kept at module scope so tests can pattern-match
+# a stable substring without coupling to the exact full text.
+_ROOT_NO_ROWS_MSG = (
+    "Root Wkl has no rows to inspect. Use dot access "
+    "(wkls.us, wkls.india.maharashtra) or a listing/search method "
+    "(wkls.countries(), wkls.us.search('...')) to produce a result first."
+)
+
+_STR_SUBSCRIPT_MSG = (
+    "Wkl does not support string subscript access.\n"
+    "  - For chain drill: use dot access — wkls.us.ca.sanfrancisco\n"
+    "  - For name search: use .search() — wkls.us.search('francisco')\n"
+    "  - For a specific row's column: use .to_dicts() and index the dict\n"
+    "  - For arbitrary DataFrame ops: call .resolve() to drop to sedona"
+)
+
 
 def _normalize_name(name: str | None) -> str:
     """Lowercase + strip non-alphanumerics. Matches ``__getattr__`` input form."""
@@ -409,6 +427,20 @@ class Wkl:
     Example:
         >>> import wkls
         >>> wkls.us.ca.sanfrancisco.wkt()
+
+    Python collection protocol (Surface 2) — ``Wkl`` implements
+    ``collections.abc.Sequence`` on the rows of the resolved result:
+
+    - ``len(wkl)``         row count
+    - ``bool(wkl)``        True iff non-empty
+    - ``for row in wkl``   iterate; each row is itself a single-row Wkl
+    - ``wkl[i]``           positional index; supports negatives
+    - ``wkl[a:b]``         slice; returns a multi-row Wkl
+    - ``uuid in wkl``      membership check against the ``id`` column
+
+    Iteration is backed by a cached pyarrow Table — no SQL per row. For
+    DataFrame operations outside admin-boundary lookup (``.filter``,
+    ``.join``, ``.group_by``, …), call ``.resolve()``.
     """
 
     _has_region: bool = True
@@ -481,6 +513,10 @@ class Wkl:
         self._df: sedonadb.dataframe.DataFrame | None = _df
         self._parent_id: str | None = _parent_id
         self._country_iso: str = ""
+        # Cache of the resolved Arrow table for Surface 2 dunders. Populated
+        # lazily on first ``_materialize()`` call; safe because ``Wkl`` is
+        # immutable (no re-resolve path in v1.3).
+        self._arrow_table: pa.Table | None = None
         if not self.chain:
             return
 
@@ -973,14 +1009,17 @@ class Wkl:
                 f"'{self.__class__.__name__}' object has no attribute '{attr}'"
             )
 
-        # Result-mode: pass through to the cached DataFrame so standard
-        # ops (count, to_arrow_table, head, show, …) keep working.
+        # Result-mode: allow-listed DataFrame verbs only. Head/limit wrap
+        # their return in a Wkl so chaining continues (fixes the
+        # .head(3).to_dicts() usability trap); the rest pass through
+        # unchanged. Anything outside the allowlist raises with a
+        # pointer at .resolve() — the documented Surface 3 escape hatch.
         if not self.chain and self._df is not None:
-            if hasattr(self._df, attr):
+            if attr in _DIR_DATAFRAME_METHODS:
+                if attr in ("head", "limit"):
+                    return _wrapped_subset_method(self, attr)
                 return getattr(self._df, attr)
-            raise AttributeError(
-                f"'{self.__class__.__name__}' object has no attribute '{attr}'"
-            )
+            raise AttributeError(_passthrough_error(attr))
 
         new_chain = self.chain + [attr.lower()]
         if len(new_chain) > 4:
@@ -1091,59 +1130,149 @@ class Wkl:
                 result.add(name)
         return sorted(result)
 
-    def __getitem__(self, key: Any) -> Wkl | sedonadb.dataframe.DataFrame:
-        """[Deprecated] Handle bracket access for location chaining.
+    # --- Surface 2: Python collection protocol ------------------------------
+    #
+    # Wkl implements collections.abc.Sequence on the rows of the resolved
+    # result set. Backed by a cached pyarrow Table (_arrow_table) so that
+    # len/iter/getitem avoid a sedona round-trip per call. The old bracket
+    # access shim (pre-v1.3 DeprecationWarning) is replaced by the new
+    # protocol — string subscripts now raise TypeError with a pointer at
+    # dot access / .search() / .resolve().
 
-        Emits a :class:`DeprecationWarning` pointing at the modern API:
+    def _materialize(self) -> pa.Table:
+        """Resolve and materialize rows as a pyarrow Table, caching the result.
 
-        - For name-based access, use dot notation: ``wkls.india`` instead of
-          ``wkls["IN"]``, ``wkls.us.oregon`` instead of ``wkls.us["OR"]``.
-        - For wildcard search, use :meth:`search`: ``wkls.us.ca.search("fran")``
-          instead of ``wkls.us.ca["%fran%"]``.
-
-        DataFrame-style indexing (list / slice keys) is unaffected —
-        it passes through to the cached DataFrame and does not warn.
-
-        The shim is preserved for backward compatibility and will be
-        removed in a future major version.
+        All Surface 2 dunders go through this to avoid multiple sedona
+        round-trips on the same ``Wkl``. Immutable after first call.
         """
-        import warnings
+        if self._arrow_table is None:
+            self._arrow_table = self.resolve().to_arrow_table()
+        return self._arrow_table
 
-        # DataFrame-style passthrough: list or slice keys operate on
-        # the cached DataFrame (result-mode or chain-mode).
-        if isinstance(key, (list, slice)):
-            df = self.resolve() if self._df is None else self._df
-            return df[key]
+    def __len__(self) -> int:
+        """Number of rows in the resolved result.
 
-        key_str = str(key)
-        if "%" in key_str:
-            cleaned = key_str.strip("%")
-            warnings.warn(
-                "Bracket access with wildcards is deprecated; "
-                f"use .search({cleaned!r}) instead.",
-                DeprecationWarning,
-                stacklevel=2,
+        Raises:
+            TypeError: If called on a root ``Wkl`` (no chain, no ``_df``).
+        """
+        try:
+            return self._materialize().num_rows
+        except ValueError as e:
+            raise TypeError(_ROOT_NO_ROWS_MSG) from e
+
+    def __bool__(self) -> bool:
+        """True iff the resolved result has at least one row.
+
+        Raises:
+            TypeError: If called on a root ``Wkl`` (no chain, no ``_df``).
+        """
+        return len(self) > 0
+
+    def __iter__(self) -> Iterator[Wkl]:
+        """Yield one single-row ``Wkl`` per row in the resolved result.
+
+        Each yielded ``Wkl`` is result-mode with ``_df`` set to a one-row
+        slice of the parent's Arrow table, rewrapped via
+        ``sedona.create_data_frame``. No SQL round-trip per step.
+
+        Raises:
+            TypeError: If called on a root ``Wkl``. Raised eagerly at
+                ``iter()`` call time (not deferred to the first
+                ``next()``) so callers see the error at the binding
+                site.
+        """
+        # Materialize eagerly so a root-Wkl TypeError surfaces at
+        # iter() call time, matching user expectation. A plain generator
+        # function would defer the raise to the first .__next__().
+        try:
+            table = self._materialize()
+        except ValueError as e:
+            raise TypeError(_ROOT_NO_ROWS_MSG) from e
+
+        def _gen() -> Iterator[Wkl]:
+            for i in range(table.num_rows):
+                yield _wkl_from_arrow_slice(table.slice(i, 1))
+
+        return _gen()
+
+    def __getitem__(self, key: int | slice) -> Wkl:
+        """Index or slice into the resolved result set.
+
+        Args:
+            key: ``int`` (supports negatives) for a single-row ``Wkl``, or
+                ``slice`` (step must be 1) for a multi-row ``Wkl``.
+
+        Raises:
+            TypeError: If ``key`` is not ``int`` or ``slice``. String keys
+                point at dot access / ``.search()`` / ``.resolve()`` (see
+                ``_STR_SUBSCRIPT_MSG``). Sliced steps other than 1 are
+                rejected with a pointer at ``.resolve()``.
+            IndexError: If an ``int`` key is outside ``[-len, len)``.
+            TypeError: If called on a root ``Wkl`` (no chain, no ``_df``).
+        """
+        # Type-check the key BEFORE resolving, so that string / list keys
+        # on a root Wkl get the specific bracket-removal message rather
+        # than the generic "root Wkl has no rows" one.
+        if isinstance(key, str):
+            raise TypeError(_STR_SUBSCRIPT_MSG)
+
+        if isinstance(key, bool):
+            # bool is a subclass of int in Python; reject to avoid
+            # wkl[True] silently being wkl[1].
+            raise TypeError(
+                f"Wkl indices must be int or slice, got {type(key).__name__}"
             )
-        else:
-            chain_prefix = ".".join(self.chain) + "." if self.chain else ""
-            warnings.warn(
-                "Bracket access is deprecated; "
-                f"use dot access (wkls.{chain_prefix}{key_str.lower()}) or the "
-                "corresponding name form.",
-                DeprecationWarning,
-                stacklevel=2,
+
+        if not isinstance(key, (int, slice)):
+            raise TypeError(
+                f"Wkl indices must be int or slice, got {type(key).__name__}"
             )
 
-        new_chain = self.chain + [key_str.lower()]
-        if len(new_chain) > 3 and "%" not in key_str:
-            raise ValueError("Too many chained attributes (max = 3)")
-        # Wildcard pattern: return the raw DataFrame for back-compat.
-        if "%" in key_str:
-            return Wkl(new_chain).resolve()
+        try:
+            table = self._materialize()
+        except ValueError as e:
+            raise TypeError(_ROOT_NO_ROWS_MSG) from e
 
-        new_wkl = Wkl(new_chain)
-        new_wkl._df = new_wkl.resolve()
-        return new_wkl
+        if isinstance(key, int):
+            n = table.num_rows
+            idx = key + n if key < 0 else key
+            if idx < 0 or idx >= n:
+                raise IndexError(f"Wkl index {key} out of range (rows={n})")
+            return _wkl_from_arrow_slice(table.slice(idx, 1))
+
+        # key is a slice at this point (the int path above returned).
+        assert isinstance(key, slice)
+        start, stop, step = key.indices(table.num_rows)
+        if step != 1:
+            raise TypeError(
+                f"Wkl does not support sliced steps (got step={step}). "
+                "Call .resolve() for arbitrary DataFrame slicing."
+            )
+        length = max(0, stop - start)
+        return _wkl_from_arrow_slice(table.slice(start, length))
+
+    def __contains__(self, item: object) -> bool:
+        """True iff ``item`` (as a string) equals any row's ``id`` column.
+
+        Narrow on purpose: the admin-boundary use case is
+        ``uuid in search_result``. Column-scanning for arbitrary values
+        is out of scope — use ``.to_dicts()`` or ``.resolve()`` for that.
+        Returns ``False`` on any failure (root ``Wkl``, missing ``id``
+        column) because ``in`` is a soft-check idiom and shouldn't raise.
+        """
+        if not isinstance(item, str):
+            return False
+        try:
+            table = self._materialize()
+        except ValueError:
+            return False
+        if "id" not in table.column_names:
+            return False
+        id_col = table.column("id")
+        for i in range(id_col.length()):
+            if id_col[i].as_py() == item:
+                return True
+        return False
 
     def __repr__(self) -> str:
         """Return string representation of the underlying data.
@@ -1926,3 +2055,43 @@ class Wkl:
                 query=escaped_query,
             )
         return Wkl(_df=sedona.sql(sql))
+
+
+# --- Surface 2 helpers (module scope so they reference the completed Wkl class)
+
+
+def _wkl_from_arrow_slice(table: pa.Table) -> Wkl:
+    """Wrap a pyarrow Table slice as a result-mode ``Wkl``.
+
+    The slice is re-materialized as a sedona DataFrame via
+    ``sedona.create_data_frame`` so the returned ``Wkl`` has a proper
+    ``_df`` for downstream ``.wkt()`` / ``.path`` / ``.parent`` calls.
+    """
+    return Wkl(_df=sedona.create_data_frame(table))
+
+
+def _wrapped_subset_method(wkl: Wkl, name: str) -> Callable[..., Wkl]:
+    """Return a wrapper around ``df.head`` / ``df.limit`` that returns a ``Wkl``.
+
+    Fixes the ``.head(n).to_dicts()`` usability trap: ``.to_dicts()`` is a
+    ``Wkl`` method, so the inner subset call must return a ``Wkl`` for
+    the chain to type-check end-to-end.
+    """
+    sedona_method = getattr(wkl._df, name)
+
+    def _call(*args: Any, **kwargs: Any) -> Wkl:
+        sub_df = sedona_method(*args, **kwargs)
+        return Wkl(_df=sub_df)
+
+    _call.__name__ = name
+    _call.__qualname__ = f"Wkl.{name}"
+    return _call
+
+
+def _passthrough_error(attr: str) -> str:
+    """Format the AttributeError message for the narrowed __getattr__ passthrough."""
+    return (
+        f"'Wkl' object has no attribute {attr!r}. "
+        f"For DataFrame operations beyond admin-boundary lookup, call "
+        f".resolve() to escape to SedonaDB: wkl.resolve().{attr}(...)"
+    )
