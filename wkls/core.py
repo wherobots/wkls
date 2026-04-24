@@ -1735,16 +1735,21 @@ class Wkl:
     def search(self, query: str) -> Wkl:
         """Search for locations whose names contain a substring.
 
-        Searches every row within the current chain's scope — countries,
-        dependencies, regions, counties, and localities alike — and returns
-        matches as a result-mode ``Wkl``. Rows carry a ``subtype`` column
-        so callers can tell what they got back.
+        Searches every row within the current ``Wkl``'s scope —
+        countries, dependencies, regions, counties, and localities
+        alike — and returns matches as a result-mode ``Wkl``. Rows
+        carry a ``subtype`` column so callers can tell what they got
+        back.
 
-        The scope narrows with chain depth:
+        Scope is determined by the current ``Wkl``:
 
-        - ``wkls.search(q)``        — full dataset
-        - ``wkls.us.search(q)``     — everything under US
-        - ``wkls.us.ca.search(q)``  — everything under California
+        - **Root** (``wkls.search(q)``): full dataset.
+        - **Chain-mode** (``wkls.us.search(q)`` /
+          ``wkls.us.ca.search(q)``): scoped to that country or region.
+        - **Result-mode** (the output of a previous search or listing
+          call): narrows *within* the current rows, so chained calls
+          like ``wkls.us.ca.search('san').search('san francisco')``
+          progressively filter the same result set.
 
         Args:
             query: Search string. Matched against normalized forms of
@@ -1754,17 +1759,17 @@ class Wkl:
                 and ``"sanfrancisco"`` all match the same rows.
 
         Returns:
-            A result-mode ``Wkl`` of matching rows (id, country, region,
-            subtype, name_primary, name_en).
+            A result-mode ``Wkl`` of matching rows.
 
         Raises:
             ValueError: If called past city level (chain depth > 2).
 
         Examples:
             >>> import wkls
-            >>> wkls.search("san francisco")     # finds the city from root
-            >>> wkls.us.search("los angeles")    # scoped to US
-            >>> wkls.us.ca.search("san fran")    # scoped to California
+            >>> wkls.search("san francisco")              # full dataset
+            >>> wkls.us.search("los angeles")             # scoped to US
+            >>> wkls.us.ca.search("san")                  # scoped to CA
+            >>> wkls.us.ca.search("san").search("fran")   # narrow within
         """
         depth = len(self.chain)
         if depth > 2:
@@ -1776,6 +1781,17 @@ class Wkl:
         # Normalize to the dot-access form so ``search("sanfrancisco")``
         # and ``search("San Francisco")`` both match "San Francisco".
         escaped_query = sqlescape(_normalize_name(query))
+
+        # Result-mode: narrow within the already-resolved rows. The
+        # previous search/listing call has already scoped the data; a
+        # fresh global scan would ignore that scope entirely.
+        if depth == 0 and self._df is not None:
+            view_name = "_wkls_search_within"
+            self._df.to_view(view_name, overwrite=True)
+            sql = queries.SEARCH_WITHIN_VIEW.format(
+                view_name=view_name, query=escaped_query
+            )
+            return Wkl(_df=sedona.sql(sql))
 
         if depth == 0:
             sql = queries.SEARCH_ROOT.format(query=escaped_query)

@@ -240,6 +240,43 @@ def test_search_normalizes_query_to_dot_access_form():
     assert spaceless >= 1  # at least the SF locality
 
 
+def test_search_chains_narrow_within_prior_result():
+    """A second ``.search()`` on a result-mode Wkl narrows within the
+    prior rows rather than firing a fresh global scan.
+
+    Regression: ``wkls.us.ca.search('san').search('san francisco')``
+    used to bail out of the chain and run SEARCH_ROOT, returning
+    global matches from every country. After the fix it stays within
+    the US/CA scope.
+    """
+    narrowed = wkls.us.ca.search("san").search("san francisco")
+    tbl = narrowed.to_arrow_table()
+    countries = {tbl.column("country")[i].as_py() for i in range(tbl.num_rows)}
+    regions = {tbl.column("region")[i].as_py() for i in range(tbl.num_rows)}
+    # Must be a subset of the prior scope (US/CA).
+    assert countries == {"US"}
+    assert regions == {"US-CA"}
+    # Must match the single-call equivalent (same final scope, same query).
+    single = wkls.us.ca.search("san francisco").count()
+    assert narrowed.count() == single
+
+
+def test_search_chains_on_root_result_still_narrows():
+    """A chained search on a root-level result narrows within it too."""
+    first = wkls.search("francisco")  # root-level, many countries
+    second = first.search("san")
+    # Every row in `second` must also be in `first` — narrowing, not
+    # re-scanning.
+    first_ids = {
+        first.to_arrow_table().column("id")[i].as_py() for i in range(first.count())
+    }
+    second_ids = {
+        second.to_arrow_table().column("id")[i].as_py() for i in range(second.count())
+    }
+    assert second_ids.issubset(first_ids)
+    assert second.count() < first.count()
+
+
 # ---------- to_dicts() ----------
 
 
