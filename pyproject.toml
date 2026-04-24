@@ -53,6 +53,17 @@ dev = [
 [tool.setuptools.package-data]
 wkls = ["data/overture.zstd18.parquet", "py.typed"]
 
+# Explicit sdist excludes so stray local artefacts (virtualenvs, notebooks)
+# can't end up in the tarball via non-VCS packaging paths — belt-and-
+# suspenders against .gitignore drift.
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/.venv",
+    "/.venv-*",
+    "/test_nb.ipynb",
+    "/docs",
+]
+
 [tool.ruff]
 target-version = "py39"
 line-length = 88
