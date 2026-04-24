@@ -940,12 +940,8 @@ class Wkl:
                 )
             parent_row = df.head(1).to_arrow_table()
             parent_id = parent_row.column("id")[0].as_py()
-            new_wkl = Wkl(new_chain, _parent_id=parent_id)
-        else:
-            new_wkl = Wkl(new_chain)
-
-        new_wkl._df = new_wkl.resolve()
-        return new_wkl
+            return Wkl(new_chain, _parent_id=parent_id)
+        return Wkl(new_chain)
 
     def __dir__(self) -> list[str]:
         """Return contextually valid attributes for this ``Wkl``.
@@ -1189,8 +1185,8 @@ class Wkl:
     def resolve(self) -> sedonadb.dataframe.DataFrame:
         """Resolve the location chain to a DataFrame.
 
-        Idempotent: returns ``self._df`` if already populated (either
-        eagerly by ``__getattr__`` on chain access, or explicitly by
+        Idempotent: returns ``self._df`` if already populated (by a
+        prior ``resolve()`` on this instance, or explicitly by
         listing/search methods in result-mode). Otherwise executes the
         appropriate SQL query based on the chain depth.
 
