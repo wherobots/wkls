@@ -80,6 +80,41 @@ def test_search_wkt_raises_on_multi_row():
         wkls.search("united").wkt()
 
 
+def test_ambiguity_error_suggests_subtype_narrowing_when_subtypes_differ():
+    """When candidates span subtypes (e.g. city + county), the error
+    surfaces ``.cities()`` / ``.counties()`` as a narrower alongside
+    ``by_id``. This is the path an agent hits after searching for a
+    name that's both a locality and a county.
+    """
+    # San Diego in CA: the city (locality) + the county (county).
+    try:
+        wkls.us.ca.search("san diego").wkt()
+    except AmbiguousLocationError as e:
+        msg = str(e)
+    else:
+        pytest.fail("expected AmbiguousLocationError")
+    assert "filter by subtype on this result" in msg
+    assert ".cities()" in msg
+    assert ".counties()" in msg
+    # by_id still advertised as the universal escape hatch.
+    assert "wkls.by_id('" in msg
+
+
+def test_ambiguity_error_skips_subtype_narrowing_when_all_same_subtype():
+    """Subtype suggestion is suppressed when it wouldn't reduce the set.
+
+    The 18 Franklins in PA are all localities — ``.cities()`` would
+    return the same 18 rows, so the message shouldn't pretend it helps.
+    """
+    try:
+        wkls.us.pa.franklin.wkt()
+    except AmbiguousLocationError as e:
+        msg = str(e)
+    else:
+        pytest.fail("expected AmbiguousLocationError")
+    assert "filter by subtype on this result" not in msg
+
+
 # ---------- Wkl.by_id ----------
 
 

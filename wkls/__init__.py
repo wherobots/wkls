@@ -6,6 +6,10 @@ Quickstart:
     >>> wkls.us.ca.sanfrancisco.wkt()      # geometry as WKT string
     >>> wkls.india.maharashtra.geojson()   # or GeoJSON, or wkb()
 
+In scripts and agent shells, call ``wkls.help()`` (or
+``print(wkls.__doc__)``) to read this guide. The builtin ``help(wkls)``
+opens a terminal pager that can't be driven non-interactively.
+
 Chain depth maps to the admin hierarchy (max 3 for unambiguous cases):
 
     wkls.<country>                         # country / dependency
@@ -17,11 +21,11 @@ too: wkls.us, wkls.unitedstates, wkls.us.ca, wkls.us.california.
 
 Resolving ambiguity — when a chain resolves to >1 row, geometry
 methods raise AmbiguousLocationError (a ValueError subclass) with a
-list of candidates and copy-paste-ready chains. Dot access is strictly
-admin-hierarchy — one way to narrow is via the chain, one escape hatch:
+list of candidates and copy-paste-ready code. Three ways to narrow:
 
-    wkls.us.pa.adamscounty.franklin        # (a) 4-level parent narrower
-    wkls.by_id('273bc9a0-...')             # (b) exact pick (UUID from the error)
+    wkls.us.ca.search('san diego').cities()  # (a) filter by subtype on a result
+    wkls.us.pa.adamscounty.franklin          # (b) 4-level parent narrower
+    wkls.by_id('273bc9a0-...')               # (c) exact pick (UUID from the error)
 
 When an *intermediate* chain step is ambiguous (e.g. 'york' in PA is
 both a locality and a county), pick the unambiguous full normalized
@@ -77,6 +81,20 @@ from .core import Wkl
 
 __all__ = ["Wkl"]
 
+
+# Intentionally shadows the builtin at module level so ``wkls.help()``
+# just works; deliberately omitted from ``__all__`` so ``from wkls import *``
+# does not pollute the caller's namespace with an alternate ``help``.
+def help() -> None:  # noqa: A001
+    """Print the wkls guide to stdout without opening the terminal pager.
+
+    Equivalent to ``print(wkls.__doc__)``. Use this from scripts and
+    agent shells — the builtin ``help(wkls)`` opens a pager that hangs
+    non-interactive drivers.
+    """
+    print(__doc__)
+
+
 try:
     __version__ = version("wkls")
 except PackageNotFoundError:
@@ -112,7 +130,7 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
-    module_attrs = list(__all__) + ["__version__"]
+    module_attrs = list(__all__) + ["__version__", "help"]
     try:
         wkl_attrs = dir(_get_instance())
     except Exception:

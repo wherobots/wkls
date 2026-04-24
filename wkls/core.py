@@ -339,6 +339,14 @@ _DIR_DATAFRAME_METHODS = frozenset(
     {"count", "head", "limit", "show", "to_arrow_table", "to_dicts"}
 )
 
+# Listing methods that narrow a multi-row result to a single subtype
+# (or inspect what subtypes are present). Surfaced via ``dir()`` on a
+# multi-row result-mode ``Wkl`` so agents discover the subtype-filter
+# path instead of falling straight to ``by_id`` when ``.wkt()`` raises.
+_DIR_RESULT_NARROW_METHODS = frozenset(
+    {"cities", "counties", "countries", "dependencies", "regions", "subtypes"}
+)
+
 
 def _normalize_name(name: str | None) -> str:
     """Lowercase + strip non-alphanumerics. Matches ``__getattr__`` input form."""
@@ -596,8 +604,10 @@ class Wkl:
         #   2. Candidates share a normalized name but have different
         #      parents (e.g. 18 Franklins in PA counties) — use the
         #      4-level parent narrower.
-        # Anything else (same name + same parent, or no chain context)
-        # can only be resolved by picking a specific UUID.
+        # A third narrower applies when candidates span multiple
+        # subtypes (e.g. a search result with both a city and a
+        # county): call the subtype method on the result.
+        # Anything else can only be resolved by picking a specific UUID.
         attrs_differ = len({c["attr"] for c in candidates}) > 1
         parents_differ = len({c["parent_attr"] for c in candidates}) > 1
 
@@ -635,6 +645,30 @@ class Wkl:
                 "distinguishes these — use by_id:"
             )
             lines.append("")
+
+        # Subtype narrowing — applies whenever candidates span multiple
+        # subtype *groups* (two rows both in ``locality`` don't get a
+        # suggestion since ``.cities()`` wouldn't reduce anything). Shown
+        # alongside the primary narrower, before ``by_id``.
+        _METHOD_FOR_SUBTYPE = {
+            "country": "countries",
+            "dependency": "dependencies",
+            "region": "regions",
+            "county": "counties",
+            "locality": "cities",
+            "localadmin": "cities",
+        }
+        by_method: dict[str, list[str]] = {}
+        for c in candidates:
+            method = _METHOD_FOR_SUBTYPE.get(c["subtype"])
+            if method:
+                by_method.setdefault(method, []).append(c["subtype"])
+        if len(by_method) > 1:
+            lines.append("")
+            lines.append("Or filter by subtype on this result:")
+            for method, subtypes in by_method.items():
+                label = "/".join(sorted(set(subtypes)))
+                lines.append(f"  .{method}()  # {len(subtypes)} {label} row(s)")
 
         # Always show by_id lines with literal UUID + .wkt() call so agents
         # can copy-paste directly.
@@ -1009,7 +1043,7 @@ class Wkl:
         """Return the attribute surface valid for the current result set.
 
         Branches on row count: geometry + navigation for single-row,
-        subtype modifiers for multi-row, DataFrame verbs for empty.
+        listing narrowers for multi-row, DataFrame verbs for empty.
         See ``__dir__`` for the full contract.
         """
         assert self._df is not None
@@ -1019,10 +1053,10 @@ class Wkl:
             return base
         if row_count == 1:
             return base | _DIR_CITY_METHODS
-        # Multi-row: only the DataFrame inspection verbs. Dot access
-        # is admin-hierarchy only — there's no in-place subtype filter,
-        # so nothing else belongs in the surface here.
-        return base
+        # Multi-row: surface the subtype-filter methods alongside the
+        # DataFrame verbs so agents can discover the narrow-by-subtype
+        # path (e.g. ``search(...).cities()``) without reading docs.
+        return base | _DIR_RESULT_NARROW_METHODS
 
     def _dir_countries(self) -> list[str]:
         """Return cached country-level dir entries (ISO codes + names)."""

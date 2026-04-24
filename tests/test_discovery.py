@@ -27,6 +27,24 @@ def test_dir_root_contains_key_attrs():
     entries = dir(wkls)
     assert "Wkl" in entries
     assert "__version__" in entries
+    # Pager-free guide entry point — must be discoverable via dir() so
+    # agents find it without reading the module source.
+    assert "help" in entries
+
+
+def test_wkls_help_prints_guide_without_pager(capsys):
+    """wkls.help() prints the module docstring to stdout.
+
+    Agents running `python -c "import wkls; help(wkls)"` get stuck on
+    the terminal pager. wkls.help() is the non-interactive equivalent
+    and should exercise a plain ``print(__doc__)`` path.
+    """
+    wkls.help()
+    out = capsys.readouterr().out
+    assert "Quickstart:" in out
+    assert "wkls.us.ca.sanfrancisco.wkt()" in out
+    # A clue that users can find the pager-free path.
+    assert "wkls.help()" in out or "print(wkls.__doc__)" in out
 
 
 def test_return_types_uniform():
@@ -102,17 +120,29 @@ def test_dir_country_level_has_path_but_not_parent():
     assert "parent" not in entries
 
 
-def test_dir_result_mode_multi_row_exposes_inspection_verbs_only():
-    """dir() on an ambiguous result shows DataFrame inspection verbs only.
+def test_dir_result_mode_multi_row_exposes_inspection_and_subtype_narrowers():
+    """dir() on an ambiguous result shows DataFrame inspection verbs plus
+    the listing methods that narrow by subtype.
 
-    Dot access is admin-hierarchy; there are no in-place filters to
-    advertise. Geometry methods are omitted because they'd raise on
-    multi-row.
+    Geometry methods stay omitted because they'd raise on multi-row. Raw
+    subtype names (``country``, ``locality``, …) are *not* advertised —
+    the narrower is the method (``cities``, ``counties``, …), not the
+    subtype attribute.
     """
     entries = set(dir(wkls.us.ca.search("san francisco")))
     assert {"count", "head", "to_arrow_table", "to_dicts"}.issubset(entries)
     assert entries.isdisjoint({"wkt", "wkb", "geojson"})  # geometry would raise
-    # No subtype narrowers — those were removed.
+    # Listing narrowers ARE advertised — they're the discovery path for
+    # agents hitting AmbiguousLocationError in result-mode.
+    assert {
+        "cities",
+        "counties",
+        "countries",
+        "dependencies",
+        "regions",
+        "subtypes",
+    }.issubset(entries)
+    # Raw subtype names are not — dot-access does not accept them as filters.
     for subtype in (
         "country",
         "dependency",
