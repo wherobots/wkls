@@ -1353,19 +1353,20 @@ class Wkl:
         """Retrieve geometry using a SQL expression.
 
         Resolves the location chain against the local metadata table, then
-        queries the remote Overture GeoParquet using attribute-based filters
-        that leverage Parquet predicate pushdown on low-cardinality columns
-        (country, subtype, region, is_land) for fast row group pruning.
+        queries the remote Overture GeoParquet. Two separate queries beat
+        one ``(id = X OR names.primary = Y)`` query because ``OR`` over a
+        nested struct field defeats predicate pushdown in DataFusion /
+        SedonaDB — the engine has to scan. Splitting gives the id path
+        clean pushdown on a top-level unique column.
 
-        For country/region/dependency subtypes, the combination of
-        country + region + subtype is unique, so no further disambiguation
-        is needed.
+        Path 1 (almost always): ``WHERE … AND id = '<gers_id>'``. ``id``
+        is globally unique, so this returns the single matching row.
 
-        For city/county/localadmin subtypes, the final disambiguation uses
-        ``(id = '<gers_id>' OR names.primary = '<name>')``. This makes the
-        lookup resilient to either identifier changing across Overture
-        releases: if GERS IDs stabilize (as OMF intends), the ID match is
-        the fast path; if the ID drifts, the name still resolves correctly.
+        Path 2 (only if path 1 returns 0 rows — city-tier only): fallback
+        to ``WHERE … AND names.primary = '<name>'``. Handles the rare
+        case of GERS id drift across Overture releases. is_land stays in
+        the filter here because a name like "San Francisco" can match
+        both land and territorial-water rows; we want the land one.
 
         Args:
             expr: SQL expression to apply to the geometry column.
@@ -1400,33 +1401,42 @@ class Wkl:
         subtype = row.column("subtype")[0].as_py()
         name_primary = row.column("name_primary")[0].as_py()
 
-        # Build WHERE clause from resolved attributes.
-        # Country/region/dependency are unique by country+region+subtype.
-        # City/county/localadmin use (id OR name) for resilient disambiguation.
-        conditions = [
+        base_conditions = [
             f"country = '{sqlescape(country)}'",
             f"subtype = '{sqlescape(subtype)}'",
             "is_land = true",
         ]
         if region:
-            conditions.append(f"region = '{sqlescape(region)}'")
+            base_conditions.append(f"region = '{sqlescape(region)}'")
+
+        def _fetch(extra: str) -> Any | None:
+            clauses = " AND ".join(base_conditions + [extra])
+            tbl = sedona.sql(
+                f"SELECT {expr} FROM overture WHERE {clauses} LIMIT 1"
+            ).to_arrow_table()
+            if tbl.num_rows == 0:
+                return None
+            return tbl.column(0)[0].as_py()
+
+        # Path 1: id match (the common case).
+        result = _fetch(f"id = '{sqlescape(gers_id)}'")
+        if result is not None:
+            return result
+
+        # Path 2: id drifted — only city-tier subtypes use names.primary
+        # as a secondary key. Country/region/dependency are unique by
+        # country+region+subtype, so no fallback possible or needed there.
         if subtype in ("county", "locality", "localadmin"):
-            conditions.append(
-                f"(id = '{sqlescape(gers_id)}' OR names.primary = '{sqlescape(name_primary)}')"
-            )
+            result = _fetch(f"names.primary = '{sqlescape(name_primary)}'")
+            if result is not None:
+                return result
 
-        where_clause = " AND ".join(conditions)
-        query = f"SELECT {expr} FROM overture WHERE {where_clause} LIMIT 1"
-
-        result_df = sedona.sql(query)
-        if result_df.count() == 0:
-            chain_str = ".".join(self.chain)
-            raise ValueError(
-                f"No geometry found for: {chain_str} "
-                f"(country={country}, region={region}, subtype={subtype}, "
-                f"id={gers_id}, name={name_primary})"
-            )
-        return result_df.head(1).to_arrow_table().column(0)[0].as_py()
+        chain_str = ".".join(self.chain)
+        raise ValueError(
+            f"No geometry found for: {chain_str} "
+            f"(country={country}, region={region}, subtype={subtype}, "
+            f"id={gers_id}, name={name_primary})"
+        )
 
     def wkt(self) -> str:
         """Get Well-Known Text (WKT) geometry for the first result.

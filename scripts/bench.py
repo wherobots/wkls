@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
-"""Benchmark wkls patterns that don't hit the network.
+"""Benchmark wkls patterns.
 
-Cold = module-level caches cleared before the call. Warm = median of
-``WARM_REPS`` repeats with caches populated. Run before and after a
-change to confirm the direction of the impact; don't treat the numbers
+Local bench (default): non-network operations — dir/help, chain drills,
+listings, search, repr, navigation. Cold = module-level caches cleared
+before the call. Warm = median of ``WARM_REPS`` repeats with caches
+populated.
+
+Geometry bench (``--geom``): opt-in because every call hits S3 and takes
+seconds. Reports warm (2nd call) wall-clock for a handful of locations.
+
+Run before and after a change to confirm direction. Don't treat numbers
 as absolute (wall-clock, shared machines).
 
-Skipped on purpose: ``.wkt()``, ``.wkb()``, ``.geojson()``, ``.hexwkb()``,
-``.svg()`` — all trigger ``_ensure_overture_loaded`` and read S3.
-
 Usage:
-    uv run scripts/bench.py
+    uv run scripts/bench.py             # local patterns only
+    uv run scripts/bench.py --geom      # only the geometry-fetch cases
 """
 
 from __future__ import annotations
 
+import argparse
 import subprocess
 import sys
 import time
@@ -23,8 +28,8 @@ from statistics import median
 import wkls
 from wkls import core
 
-
 WARM_REPS = 5
+GEOM_REPS = 3
 
 
 def _prefetch_sf_id() -> str:
@@ -37,40 +42,43 @@ def build_cases(sf_id: str) -> list[tuple[str, str]]:
     _ = sf_id  # referenced inside exec'd snippets via the namespace
     return [
         # Introspection
-        ("dir(wkls)",                              "dir(wkls)"),
-        ("dir(wkls.us)",                           "dir(wkls.us)"),
-        ("dir(wkls.us.ca)",                        "dir(wkls.us.ca)"),
-        ("pydoc.render_doc(wkls)  # help proxy",   "import pydoc; pydoc.render_doc(wkls)"),
-        ("pydoc.render_doc(wkls.us)",              "import pydoc; pydoc.render_doc(wkls.us)"),
+        ("dir(wkls)", "dir(wkls)"),
+        ("dir(wkls.us)", "dir(wkls.us)"),
+        ("dir(wkls.us.ca)", "dir(wkls.us.ca)"),
+        (
+            "pydoc.render_doc(wkls)  # help proxy",
+            "import pydoc; pydoc.render_doc(wkls)",
+        ),
+        ("pydoc.render_doc(wkls.us)", "import pydoc; pydoc.render_doc(wkls.us)"),
         # Chain drills
-        ("wkls.us",                                "wkls.us"),
-        ("wkls.us.ca",                             "wkls.us.ca"),
-        ("wkls.us.ca.sanfrancisco",                "wkls.us.ca.sanfrancisco"),
-        ("wkls.unitedstates  # name vs ISO",       "wkls.unitedstates"),
+        ("wkls.us", "wkls.us"),
+        ("wkls.us.ca", "wkls.us.ca"),
+        ("wkls.us.ca.sanfrancisco", "wkls.us.ca.sanfrancisco"),
+        ("wkls.unitedstates  # name vs ISO", "wkls.unitedstates"),
         ("wkls.us.pa.adamscounty.franklin  # 4-lvl", "wkls.us.pa.adamscounty.franklin"),
         # Lookup
-        ("wkls.by_id(<sf id>)",                    "wkls.by_id(SF_ID)"),
+        ("wkls.by_id(<sf id>)", "wkls.by_id(SF_ID)"),
         # Listings
-        ("wkls.countries()",                       "wkls.countries()"),
-        ("wkls.dependencies()",                    "wkls.dependencies()"),
-        ("wkls.subtypes()",                        "wkls.subtypes()"),
-        ("wkls.us.regions()",                      "wkls.us.regions()"),
-        ("wkls.us.ca.counties()",                  "wkls.us.ca.counties()"),
-        ("wkls.us.ca.sandiegocounty.cities()",     "wkls.us.ca.sandiegocounty.cities()"),
+        ("wkls.countries()", "wkls.countries()"),
+        ("wkls.dependencies()", "wkls.dependencies()"),
+        ("wkls.subtypes()", "wkls.subtypes()"),
+        ("wkls.us.regions()", "wkls.us.regions()"),
+        ("wkls.us.ca.counties()", "wkls.us.ca.counties()"),
+        ("wkls.us.ca.sandiegocounty.cities()", "wkls.us.ca.sandiegocounty.cities()"),
         # Search
-        ("wkls.search('franklin')",                "wkls.search('franklin')"),
-        ("wkls.us.tn.search('franklin')",          "wkls.us.tn.search('franklin')"),
+        ("wkls.search('franklin')", "wkls.search('franklin')"),
+        ("wkls.us.tn.search('franklin')", "wkls.us.tn.search('franklin')"),
         # Result-mode inspection
-        ("wkls.countries().count()",               "wkls.countries().count()"),
-        ("wkls.countries().head(5)",               "wkls.countries().head(5)"),
-        ("wkls.countries().to_dicts()",            "wkls.countries().to_dicts()"),
+        ("wkls.countries().count()", "wkls.countries().count()"),
+        ("wkls.countries().head(5)", "wkls.countries().head(5)"),
+        ("wkls.countries().to_dicts()", "wkls.countries().to_dicts()"),
         # Repr
-        ("repr(wkls.us.ca)  # chain, single row",  "repr(wkls.us.ca)"),
-        ("repr(wkls.us.ca.sanfrancisco)",          "repr(wkls.us.ca.sanfrancisco)"),
+        ("repr(wkls.us.ca)  # chain, single row", "repr(wkls.us.ca)"),
+        ("repr(wkls.us.ca.sanfrancisco)", "repr(wkls.us.ca.sanfrancisco)"),
         ("repr(wkls.countries())  # result, 219r", "repr(wkls.countries())"),
         # Navigation
-        ("wkls.us.ca.sanfrancisco.parent",         "wkls.us.ca.sanfrancisco.parent"),
-        ("wkls.us.ca.sanfrancisco.path",           "wkls.us.ca.sanfrancisco.path"),
+        ("wkls.us.ca.sanfrancisco.parent", "wkls.us.ca.sanfrancisco.parent"),
+        ("wkls.us.ca.sanfrancisco.path", "wkls.us.ca.sanfrancisco.path"),
     ]
 
 
@@ -110,7 +118,33 @@ def measure_import() -> float:
     return float(out.strip().splitlines()[-1])
 
 
-def main() -> None:
+GEOM_CASES: list[tuple[str, str]] = [
+    ("wkls.us.wkt()  # country", "wkls.us.wkt()"),
+    ("wkls.us.ca.wkt()  # region", "wkls.us.ca.wkt()"),
+    ("wkls.us.ca.sanfrancisco.wkt()  # city", "wkls.us.ca.sanfrancisco.wkt()"),
+    (
+        "wkls.us.pa.adamscounty.franklin.wkt()  # 4-lvl",
+        "wkls.us.pa.adamscounty.franklin.wkt()",
+    ),
+    ("wkls.us.ca.sanfrancisco.geojson()", "wkls.us.ca.sanfrancisco.geojson()"),
+]
+
+
+def bench_geom(code: str) -> tuple[float, float]:
+    """First call (cold overture view + fresh query), then median of GEOM_REPS warm calls."""
+    namespace: dict = {"wkls": wkls}
+    t = time.perf_counter()
+    exec(code, namespace)
+    cold = time.perf_counter() - t
+    warm = []
+    for _ in range(GEOM_REPS):
+        t = time.perf_counter()
+        exec(code, namespace)
+        warm.append(time.perf_counter() - t)
+    return cold, median(warm)
+
+
+def run_local() -> None:
     # Prime sedona so the first in-process measurement isn't skewed by
     # query-plan warmup from the very first SQL call.
     wkls.countries()
@@ -126,6 +160,36 @@ def main() -> None:
     for name, code in build_cases(sf_id):
         cold, warm = bench(code, sf_id)
         print(f"{name:<44}{cold * 1000:>14.1f} ms{warm * 1000:>14.1f} ms")
+
+
+def run_geom() -> None:
+    # Prime sedona and overture view so the first case doesn't pay
+    # one-time-view-registration cost as part of its "cold" number.
+    wkls.us.wkt()
+
+    print(
+        f"wkls geom bench  —  cold = first call, warm = median of {GEOM_REPS} repeats"
+    )
+    print("=" * 82)
+    print(f"{'pattern':<54}{'cold':>13}{'warm':>13}")
+    print("-" * 82)
+    for name, code in GEOM_CASES:
+        cold, warm = bench_geom(code)
+        print(f"{name:<54}{cold * 1000:>10.0f} ms{warm * 1000:>10.0f} ms")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="wkls bench")
+    parser.add_argument(
+        "--geom",
+        action="store_true",
+        help="Run only the geometry-fetch cases (hits S3)",
+    )
+    args = parser.parse_args()
+    if args.geom:
+        run_geom()
+    else:
+        run_local()
 
 
 if __name__ == "__main__":
