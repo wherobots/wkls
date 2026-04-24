@@ -386,11 +386,8 @@ class Wkl:
     _ROOT_ONLY_METHODS = frozenset(
         {
             "configure",
-            "countries",
-            "dependencies",
             "overture_releases",
             "overture_version",
-            "subtypes",
         }
     )
 
@@ -1504,48 +1501,56 @@ class Wkl:
         return pyarrow_wkb_array.__arrow_c_array__(requested_schema=requested_schema)
 
     def dependencies(self) -> Wkl:
-        """Get all dependencies (territories, overseas regions, etc.).
+        """List dependencies (territories, overseas regions, etc.) in scope.
+
+        Scope narrows with chain depth, matching the other listing
+        methods. ``wkls.dependencies()`` at root lists every dependency
+        in the dataset; at any other depth, results are filtered to
+        dependencies within the current country chain. A dependency
+        chain (e.g. ``wkls.pr``) returns itself.
 
         Returns:
-            A result-mode ``Wkl`` wrapping the matching rows (id,
-            country, subtype, name_primary, name_en).
-
-        Raises:
-            ValueError: If called on a chained object instead of root.
+            A result-mode ``Wkl`` wrapping the matching rows.
         """
-        if self.chain:
-            raise ValueError(
-                "dependencies() can only be called on the root object. Use wkls.dependencies() instead of chaining."
-            )
-
-        query = """
-            SELECT DISTINCT id, country, subtype, name_primary, name_en
-            FROM wkls
-            WHERE subtype = 'dependency'
-        """
-        return Wkl(_df=sedona.sql(query))
+        return self._list_top_level_subtype("dependency")
 
     def countries(self) -> Wkl:
-        """Get all countries.
+        """List countries in scope.
+
+        Scope narrows with chain depth, matching the other listing
+        methods. ``wkls.countries()`` at root lists every country in
+        the dataset; at any other depth, the result is the one country
+        that contains the current chain (``wkls.us.countries()`` →
+        ``[US]``).
 
         Returns:
-            A result-mode ``Wkl`` wrapping the matching rows (id,
-            country, subtype, name_primary, name_en).
-
-        Raises:
-            ValueError: If called on a chained object instead of root.
+            A result-mode ``Wkl`` wrapping the matching rows.
         """
-        if self.chain:
-            raise ValueError(
-                "countries() can only be called on the root object. Use wkls.countries() instead of chaining."
-            )
+        return self._list_top_level_subtype("country")
 
-        query = """
+    def _list_top_level_subtype(self, subtype: str) -> Wkl:
+        """Shared implementation for ``countries()`` / ``dependencies()``.
+
+        Both list a top-level subtype. At root, return every row of that
+        subtype. On any chain, filter by the current country so the
+        result is bound to the chain's scope (one row for the
+        matching country / dependency, or empty otherwise).
+        """
+        if not self.chain:
+            query = f"""
+                SELECT DISTINCT id, country, subtype, name_primary, name_en
+                FROM wkls
+                WHERE subtype = '{subtype}'
+            """
+            return Wkl(_df=sedona.sql(query))
+
+        query = f"""
             SELECT DISTINCT id, country, subtype, name_primary, name_en
             FROM wkls
-            WHERE subtype = 'country'
+            WHERE subtype = '{subtype}'
+              AND country = '{{country}}'
         """
-        return Wkl(_df=sedona.sql(query))
+        return Wkl(_df=sedona.sql(query.format(country=sqlescape(self._country_iso))))
 
     def regions(self) -> Wkl:
         """List regions in the current chain scope.
@@ -1612,8 +1617,12 @@ class Wkl:
                 )
             )
 
-        # Depth >= 3: parent-scoped. The chain must resolve to a single
-        # row; we list its direct children by parent_id.
+        # Depth >= 3: scope is self + direct descendants. The chain
+        # must resolve to a single row; we return that row (if its
+        # subtype matches the filter) plus any children whose subtype
+        # matches. This keeps the pattern consistent with depth 1-2
+        # (where ``regions()`` at region level returns the region row
+        # itself) — the current row is in-scope for its own subtype.
         df = self.resolve()
         row_count = df.count()
         if row_count != 1:
@@ -1625,10 +1634,10 @@ class Wkl:
         row_id = df.head(1).to_arrow_table().column("id")[0].as_py()
         query = f"""
             SELECT * FROM wkls
-            WHERE parent_id = '{{parent_id}}'
+            WHERE (id = '{{row_id}}' OR parent_id = '{{row_id}}')
               AND subtype IN {subtype_filter}
         """
-        return Wkl(_df=sedona.sql(query.format(parent_id=sqlescape(row_id))))
+        return Wkl(_df=sedona.sql(query.format(row_id=sqlescape(row_id))))
 
     def counties(self) -> Wkl:
         """List counties in the current chain scope.
@@ -1663,21 +1672,65 @@ class Wkl:
         return self._list_subtype("('locality', 'localadmin')", "cities")
 
     def subtypes(self) -> Wkl:
-        """Get all distinct division subtypes in the dataset.
+        """List distinct division subtypes in scope.
+
+        Scope narrows with chain depth, matching the other listing
+        methods. ``wkls.subtypes()`` at root enumerates every subtype
+        in the dataset; at a country or region chain, the result is
+        restricted to subtypes present within that scope (e.g.
+        ``wkls.fk.subtypes()`` shows the Falklands lack regions).
 
         Returns:
             A result-mode ``Wkl`` wrapping the distinct subtype rows.
 
         Raises:
-            ValueError: If called on a chained object instead of root.
+            ValueError: If the chain resolves to more than one row past
+                region level (same single-row requirement as
+                ``counties()`` / ``cities()``).
         """
-        if self.chain:
-            raise ValueError(
-                "subtypes() can only be called on the root object. Use wkls.subtypes() instead of chaining."
+        depth = len(self.chain)
+
+        if depth == 0:
+            return Wkl(_df=sedona.sql("SELECT DISTINCT subtype FROM wkls"))
+
+        if depth == 1 or not self._has_region:
+            query = """
+                SELECT DISTINCT subtype FROM wkls
+                WHERE country = '{country}'
+            """
+            return Wkl(
+                _df=sedona.sql(query.format(country=sqlescape(self._country_iso)))
             )
 
-        query = """SELECT DISTINCT subtype FROM wkls"""
-        return Wkl(_df=sedona.sql(query))
+        if depth == 2:
+            query = """
+                SELECT DISTINCT subtype FROM wkls
+                WHERE country = '{country}' AND region = '{region}'
+            """
+            return Wkl(
+                _df=sedona.sql(
+                    query.format(
+                        country=sqlescape(self._country_iso),
+                        region=sqlescape(self._region_iso),
+                    )
+                )
+            )
+
+        # Depth >= 3: scope is self + descendants (same semantics as
+        # counties()/cities() past region level).
+        df = self.resolve()
+        row_count = df.count()
+        if row_count != 1:
+            raise ValueError(
+                "subtypes() past region level requires the chain to resolve "
+                f"to a single row; '{'.'.join(self.chain)}' has {row_count} rows."
+            )
+        row_id = df.head(1).to_arrow_table().column("id")[0].as_py()
+        query = """
+            SELECT DISTINCT subtype FROM wkls
+            WHERE id = '{row_id}' OR parent_id = '{row_id}'
+        """
+        return Wkl(_df=sedona.sql(query.format(row_id=sqlescape(row_id))))
 
     def search(self, query: str) -> Wkl:
         """Search for locations whose names contain a substring.

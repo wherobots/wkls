@@ -4,9 +4,10 @@ Covers how users find out what's available:
 
 - ``dir(wkls)`` / ``dir(wkls.us)`` introspection.
 - ``.search(query)`` at each chain level with subtree scope.
-- Subtree-scoped listing methods (``.regions()``, ``.counties()``, ``.cities()``).
-- Root-only methods: ``.countries()``, ``.dependencies()``, ``.subtypes()``,
-  ``.overture_version()`` / ``.overture_releases()``.
+- Scoped listing methods — ``.countries()``, ``.dependencies()``,
+  ``.regions()``, ``.counties()``, ``.cities()``, ``.subtypes()`` —
+  all narrow with chain depth, inclusive of self where subtype matches.
+- Root-only config methods: ``.overture_version()`` / ``.overture_releases()``.
 """
 
 from __future__ import annotations
@@ -335,9 +336,15 @@ def test_regions_past_region_level_returns_empty():
     assert wkls.us.ca.sanfrancisco.regions().count() == 0
 
 
-def test_counties_past_region_level_returns_empty():
-    """counties() past region level cascades via parent_id; a locality has no sub-counties."""
-    assert wkls.us.ca.sanfrancisco.counties().count() == 0
+def test_counties_past_region_level_self_inclusive():
+    """counties() past region level includes self if self is a county.
+
+    Overture models San Francisco as a county (consolidated
+    city-county), so .counties() on it returns [SF].
+    """
+    result = wkls.us.ca.sanfrancisco.counties()
+    assert result.count() == 1
+    assert result.to_arrow_table().column("name_primary")[0].as_py() == "San Francisco"
 
 
 def test_cities_at_county_level_returns_children():
@@ -376,22 +383,94 @@ def test_subtypes_at_root():
         assert expected in subtype_values, f"Missing subtype: {expected}"
 
 
-def test_countries_hidden_on_chain():
-    """countries() is root-only and hidden from chained Wkl instances."""
-    assert not hasattr(wkls.us, "countries")
-    with pytest.raises(AttributeError):
-        wkls.us.countries()
+def test_countries_scope_narrows_to_self_on_country_chain():
+    """wkls.us.countries() returns [US] — the country that contains the chain."""
+    result = wkls.us.countries()
+    assert result.count() == 1
+    tbl = result.to_arrow_table()
+    assert tbl.column("country")[0].as_py() == "US"
+    assert tbl.column("subtype")[0].as_py() == "country"
 
 
-def test_dependencies_hidden_on_chain():
-    """dependencies() is root-only and hidden from chained Wkl instances."""
-    assert not hasattr(wkls.us, "dependencies")
-    with pytest.raises(AttributeError):
-        wkls.us.dependencies()
+def test_countries_scope_narrows_to_self_past_country_chain():
+    """countries() at region or city depth still returns the containing country."""
+    assert wkls.us.ca.countries().count() == 1
+    assert wkls.us.ca.sanfrancisco.countries().count() == 1
 
 
-def test_subtypes_hidden_on_chain():
-    """subtypes() is root-only and hidden from chained Wkl instances."""
-    assert not hasattr(wkls.us, "subtypes")
-    with pytest.raises(AttributeError):
-        wkls.us.subtypes()
+def test_dependencies_scope_empty_on_country_chain():
+    """wkls.us.dependencies() returns [] — US is a country, no dependencies in scope."""
+    assert wkls.us.dependencies().count() == 0
+
+
+def test_dependencies_scope_narrows_to_self_on_dependency_chain():
+    """wkls.pr.dependencies() returns [PR] — PR's subtype is 'dependency'."""
+    result = wkls.pr.dependencies()
+    assert result.count() == 1
+    tbl = result.to_arrow_table()
+    assert tbl.column("country")[0].as_py() == "PR"
+    assert tbl.column("subtype")[0].as_py() == "dependency"
+
+
+def test_subtypes_scope_narrows_to_country():
+    """wkls.us.subtypes() lists distinct subtypes present in the US."""
+    tbl = wkls.us.subtypes().to_arrow_table()
+    values = {tbl.column("subtype")[i].as_py() for i in range(tbl.num_rows)}
+    # US has country + region + county + locality at minimum.
+    assert {"country", "region", "county", "locality"}.issubset(values)
+
+
+def test_subtypes_scope_narrows_to_region():
+    """wkls.us.ca.subtypes() lists distinct subtypes present in CA."""
+    tbl = wkls.us.ca.subtypes().to_arrow_table()
+    values = {tbl.column("subtype")[i].as_py() for i in range(tbl.num_rows)}
+    # CA is itself a region; its subtree adds county + locality + localadmin.
+    assert "region" in values
+    assert values & {"county", "locality", "localadmin"}
+
+
+def test_subtypes_no_region_scope():
+    """Entities without regions in their subtree (e.g. Falklands) don't list 'region'.
+
+    FK is itself a dependency, so its subtype scope is {dependency, locality}.
+    """
+    tbl = wkls.fk.subtypes().to_arrow_table()
+    values = {tbl.column("subtype")[i].as_py() for i in range(tbl.num_rows)}
+    assert "region" not in values
+    assert "dependency" in values  # FK is a dependency
+    assert "locality" in values  # FK has localities
+
+
+def test_subtypes_past_region_level_requires_single_row():
+    """subtypes() past region level matches the other list-method single-row rule."""
+    with pytest.raises(ValueError, match="single row"):
+        wkls.us.pa.franklin.subtypes()
+
+
+def test_cities_at_locality_level_includes_self():
+    """cities() on a single-row locality chain includes self.
+
+    Consistency: ``regions()`` at region level returns the region itself;
+    ``cities()`` at locality level should return the locality itself.
+    Oakland is a locality (San Francisco is modelled as a county in
+    Overture, so it's tested via counties() instead).
+    """
+    oakland = wkls.us.ca.alamedacounty.oakland
+    cities = oakland.cities()
+    assert cities.count() >= 1
+    names = {
+        cities.to_arrow_table().column("name_primary")[i].as_py()
+        for i in range(cities.count())
+    }
+    assert "Oakland" in names
+
+
+def test_counties_at_county_level_includes_self():
+    """counties() on a single-row county chain returns the county itself."""
+    sf = wkls.us.ca.sanfrancisco
+    # Overture models SF as a county (consolidated city-county).
+    counties = sf.counties()
+    assert counties.count() == 1
+    tbl = counties.to_arrow_table()
+    assert tbl.column("name_primary")[0].as_py() == "San Francisco"
+    assert tbl.column("subtype")[0].as_py() == "county"
