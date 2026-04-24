@@ -193,6 +193,28 @@ def _initialize_table() -> sedonadb.SedonaContext:
     return sedona
 
 
+def _seed_country_info() -> None:
+    """Populate ``_country_info`` for every country identifier in one pass.
+
+    Without this, each unique country access (``wkls.us``, ``wkls.unitedstates``,
+    etc.) fires two lookup queries the first time — and ``help(wkls)`` /
+    ``dir()`` introspection paths fan this out across ~438 identifiers.
+    Two small scans up front replace hundreds of queries on the cold path.
+    """
+    regions_tbl = sedona.sql(queries.COUNTRY_INFO_SEED_WITH_REGIONS).to_arrow_table()
+    has_region_isos: set[str] = {
+        regions_tbl.column("iso")[i].as_py() for i in range(regions_tbl.num_rows)
+    }
+    tbl = sedona.sql(queries.COUNTRY_INFO_SEED).to_arrow_table()
+    for i in range(tbl.num_rows):
+        iso = tbl.column("iso")[i].as_py()
+        name = tbl.column("name")[i].as_py()
+        value = (iso, iso in has_region_isos)
+        _country_info[iso.lower()] = value
+        if name:
+            _country_info[name] = value
+
+
 # Initialize the table when the module is imported
 sedona = _initialize_table()
 
@@ -247,6 +269,9 @@ _dir_cache: dict[tuple[str, ...], list[str]] = {}
 # id, country, region, subtype, name_primary, name_en, parent_division_id.
 # Populated by Wkl.by_id() and Wkl.parent.
 _row_info: dict[str, dict[str, object]] = {}
+
+
+_seed_country_info()
 
 
 def sqlescape(v: str) -> str:
@@ -870,6 +895,7 @@ class Wkl:
         _region_info.clear()
         _dir_cache.clear()
         _row_info.clear()
+        _seed_country_info()
         sedona.read_parquet(
             _overture_uri(overture_version),
             options={
@@ -940,12 +966,8 @@ class Wkl:
                 )
             parent_row = df.head(1).to_arrow_table()
             parent_id = parent_row.column("id")[0].as_py()
-            new_wkl = Wkl(new_chain, _parent_id=parent_id)
-        else:
-            new_wkl = Wkl(new_chain)
-
-        new_wkl._df = new_wkl.resolve()
-        return new_wkl
+            return Wkl(new_chain, _parent_id=parent_id)
+        return Wkl(new_chain)
 
     def __dir__(self) -> list[str]:
         """Return contextually valid attributes for this ``Wkl``.
@@ -1134,44 +1156,33 @@ class Wkl:
         size at a glance. ``path=`` is used when the chain resolves to a
         single row (round-trippable); ``chain=`` is used otherwise.
         """
+        subtypes = self._subtype_counts()
+        row_count = sum(subtypes.values())
+
         parts: list[str] = []
         if self.chain:
             path_str = "wkls." + ".".join(self.chain)
-            key = "path" if self._is_single_row() else "chain"
+            key = "path" if row_count == 1 else "chain"
             parts.append(f"{key}='{path_str}'")
 
-        row_count = self._safe_row_count()
         parts.append(f"rows={row_count}")
 
-        if row_count >= 1:
-            subtypes = self._subtype_counts()
-            if len(subtypes) == 1:
-                st = next(iter(subtypes))
-                parts.append(f"subtype='{st}'")
-            elif subtypes:
-                body = ", ".join(f"{k}: {v}" for k, v in subtypes.items())
-                parts.append(f"subtypes={{{body}}}")
+        if len(subtypes) == 1:
+            st = next(iter(subtypes))
+            parts.append(f"subtype='{st}'")
+        elif subtypes:
+            body = ", ".join(f"{k}: {v}" for k, v in subtypes.items())
+            parts.append(f"subtypes={{{body}}}")
 
         return f"Wkl({', '.join(parts)})"
 
-    def _is_single_row(self) -> bool:
-        """True iff the resolved DataFrame holds exactly one row."""
-        try:
-            df = self._df if self._df is not None else self.resolve()
-            return df.count() == 1
-        except Exception:
-            return False
-
-    def _safe_row_count(self) -> int:
-        """Best-effort row count; 0 on failure so repr never throws."""
-        try:
-            df = self._df if self._df is not None else self.resolve()
-            return int(df.count())
-        except Exception:
-            return 0
-
     def _subtype_counts(self) -> dict[str, int]:
-        """Distinct subtypes with row counts, ordered by count descending."""
+        """Distinct subtypes with row counts, ordered by count descending.
+
+        One query serves the full repr header — total rows is the sum of
+        the values, single-row is ``sum == 1``. Empty dict on failure so
+        ``__repr__`` never throws.
+        """
         try:
             df = self._df if self._df is not None else self.resolve()
             df.to_view("_wkls_repr_subtypes", overwrite=True)
@@ -1189,8 +1200,8 @@ class Wkl:
     def resolve(self) -> sedonadb.dataframe.DataFrame:
         """Resolve the location chain to a DataFrame.
 
-        Idempotent: returns ``self._df`` if already populated (either
-        eagerly by ``__getattr__`` on chain access, or explicitly by
+        Idempotent: returns ``self._df`` if already populated (by a
+        prior ``resolve()`` on this instance, or explicitly by
         listing/search methods in result-mode). Otherwise executes the
         appropriate SQL query based on the chain depth.
 
@@ -1342,19 +1353,20 @@ class Wkl:
         """Retrieve geometry using a SQL expression.
 
         Resolves the location chain against the local metadata table, then
-        queries the remote Overture GeoParquet using attribute-based filters
-        that leverage Parquet predicate pushdown on low-cardinality columns
-        (country, subtype, region, is_land) for fast row group pruning.
+        queries the remote Overture GeoParquet. Two separate queries beat
+        one ``(id = X OR names.primary = Y)`` query because ``OR`` over a
+        nested struct field defeats predicate pushdown in DataFusion /
+        SedonaDB — the engine has to scan. Splitting gives the id path
+        clean pushdown on a top-level unique column.
 
-        For country/region/dependency subtypes, the combination of
-        country + region + subtype is unique, so no further disambiguation
-        is needed.
+        Path 1 (almost always): ``WHERE … AND id = '<gers_id>'``. ``id``
+        is globally unique, so this returns the single matching row.
 
-        For city/county/localadmin subtypes, the final disambiguation uses
-        ``(id = '<gers_id>' OR names.primary = '<name>')``. This makes the
-        lookup resilient to either identifier changing across Overture
-        releases: if GERS IDs stabilize (as OMF intends), the ID match is
-        the fast path; if the ID drifts, the name still resolves correctly.
+        Path 2 (only if path 1 returns 0 rows — city-tier only): fallback
+        to ``WHERE … AND names.primary = '<name>'``. Handles the rare
+        case of GERS id drift across Overture releases. is_land stays in
+        the filter here because a name like "San Francisco" can match
+        both land and territorial-water rows; we want the land one.
 
         Args:
             expr: SQL expression to apply to the geometry column.
@@ -1389,33 +1401,42 @@ class Wkl:
         subtype = row.column("subtype")[0].as_py()
         name_primary = row.column("name_primary")[0].as_py()
 
-        # Build WHERE clause from resolved attributes.
-        # Country/region/dependency are unique by country+region+subtype.
-        # City/county/localadmin use (id OR name) for resilient disambiguation.
-        conditions = [
+        base_conditions = [
             f"country = '{sqlescape(country)}'",
             f"subtype = '{sqlescape(subtype)}'",
             "is_land = true",
         ]
         if region:
-            conditions.append(f"region = '{sqlescape(region)}'")
+            base_conditions.append(f"region = '{sqlescape(region)}'")
+
+        def _fetch(extra: str) -> Any | None:
+            clauses = " AND ".join(base_conditions + [extra])
+            tbl = sedona.sql(
+                f"SELECT {expr} FROM overture WHERE {clauses} LIMIT 1"
+            ).to_arrow_table()
+            if tbl.num_rows == 0:
+                return None
+            return tbl.column(0)[0].as_py()
+
+        # Path 1: id match (the common case).
+        result = _fetch(f"id = '{sqlescape(gers_id)}'")
+        if result is not None:
+            return result
+
+        # Path 2: id drifted — only city-tier subtypes use names.primary
+        # as a secondary key. Country/region/dependency are unique by
+        # country+region+subtype, so no fallback possible or needed there.
         if subtype in ("county", "locality", "localadmin"):
-            conditions.append(
-                f"(id = '{sqlescape(gers_id)}' OR names.primary = '{sqlescape(name_primary)}')"
-            )
+            result = _fetch(f"names.primary = '{sqlescape(name_primary)}'")
+            if result is not None:
+                return result
 
-        where_clause = " AND ".join(conditions)
-        query = f"SELECT {expr} FROM overture WHERE {where_clause} LIMIT 1"
-
-        result_df = sedona.sql(query)
-        if result_df.count() == 0:
-            chain_str = ".".join(self.chain)
-            raise ValueError(
-                f"No geometry found for: {chain_str} "
-                f"(country={country}, region={region}, subtype={subtype}, "
-                f"id={gers_id}, name={name_primary})"
-            )
-        return result_df.head(1).to_arrow_table().column(0)[0].as_py()
+        chain_str = ".".join(self.chain)
+        raise ValueError(
+            f"No geometry found for: {chain_str} "
+            f"(country={country}, region={region}, subtype={subtype}, "
+            f"id={gers_id}, name={name_primary})"
+        )
 
     def wkt(self) -> str:
         """Get Well-Known Text (WKT) geometry for the first result.

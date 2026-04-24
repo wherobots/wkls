@@ -20,7 +20,7 @@ def test_bracket_access_emits_deprecation():
     """Wkl()[...] still works but emits a DeprecationWarning."""
     with pytest.warns(DeprecationWarning, match="Bracket access is deprecated"):
         result = Wkl()["IN"]
-    assert result._df.to_arrow_table().column("country")[0].as_py() == "IN"
+    assert result.resolve().to_arrow_table().column("country")[0].as_py() == "IN"
 
 
 def test_bracket_wildcard_emits_deprecation_pointing_to_search():

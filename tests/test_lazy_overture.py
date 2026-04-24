@@ -38,7 +38,7 @@ import wkls  # must not raise
 
 assert wkls.countries().count() > 0, "countries() should work offline"
 assert wkls.us.regions().count() > 0, "regions() should work offline"
-assert wkls.us.ca.sanfrancisco._df.count() == 1, "chain resolution should work offline"
+assert wkls.us.ca.sanfrancisco.resolve().count() == 1, "chain resolution should work offline"
 assert wkls.us.ca.search('oakland').count() >= 1, "search should work offline"
 print("OK")
 """
