@@ -264,14 +264,6 @@ def sqlescape(v: str) -> str:
     return sqlescapy.sqlescape(v).replace("\\%", "%")
 
 
-# Closed vocabulary of Overture subtypes that wkls bundles. When used
-# as an attribute access (e.g. `wkls.us.ca.mission.locality`) the name
-# filters the current result set by subtype — "subtype modifier." Kept
-# as a frozenset so the check in __getattr__ is O(1).
-_SUBTYPE_NAMES = frozenset(
-    {"country", "dependency", "region", "county", "locality", "localadmin"}
-)
-
 # Methods surfaced by __dir__ at each chain depth.
 _DIR_ROOT_METHODS = frozenset(
     {
@@ -318,7 +310,9 @@ _DIR_CITY_METHODS = frozenset({"geojson", "parent", "path", "wkb", "wkt"})
 # Result-mode: DataFrame passthroughs that make sense to surface on a
 # multi-row Wkl. Keep this to the common inspection verbs — sedona's
 # DataFrame has a wider surface but listing everything would be noise.
-_DIR_DATAFRAME_METHODS = frozenset({"count", "head", "limit", "show", "to_arrow_table"})
+_DIR_DATAFRAME_METHODS = frozenset(
+    {"count", "head", "limit", "show", "to_arrow_table", "to_dicts"}
+)
 
 
 def _normalize_name(name: str | None) -> str:
@@ -374,65 +368,14 @@ def _build_error_hint(chain: list[str], suggestions: list[str]) -> str:
 
 
 class Wkl:
-    """Well-Known Locations — access global administrative boundaries.
+    """Administrative boundaries via dot access.
 
-    Provides chainable access to Overture Maps administrative boundary
-    geometries via Apache SedonaDB. Chain country → region → place using
-    dot notation with names or ISO codes.
+    For full usage (chaining, disambiguation, listing, navigation,
+    errors), see ``help(wkls)``.
 
-    Quick Start (two ways to use):
-
-        >>> import wkls                               # ergonomic
+    Example:
+        >>> import wkls
         >>> wkls.us.ca.sanfrancisco.wkt()
-        >>> wkls.india.maharashtra.wkt()
-
-        >>> from wkls import Wkl                      # explicit
-        >>> wkl = Wkl()
-        >>> wkl.us.ca.sanfrancisco.wkt()
-        >>> wkl.us.california.sanfrancisco.wkt()      # full name works too
-
-    Chaining (3 levels max):
-
-        Level 1 — Country:  ``wkls.us``  OR  ``wkls.unitedstates``
-        Level 2 — Region:   ``wkls.us.ca``  OR  ``wkls.us.california``
-        Level 3 — Place:    ``wkls.us.ca.sanfrancisco``
-
-    Name Rules:
-        Names are lowercase, spaces removed:
-
-        - "San Francisco" → ``sanfrancisco``
-        - "New York"      → ``newyork``
-        - "United States" → ``unitedstates``
-        - ISO codes also work: ``us``, ``ca``, ``gb``, ``de``, ``jp``…
-
-        Names that contain diacritics or punctuation in ``name_en``
-        (e.g., Côte d'Ivoire, São Paulo) are not Python-typable — fall
-        back to the ISO code: ``wkls.ci``, ``wkls.br.sp``.
-
-    Geometry Formats:
-        - ``.wkt()``     → str   (Well-Known Text)
-        - ``.wkb()``     → bytes (Well-Known Binary)
-        - ``.geojson()`` → str   (GeoJSON)
-
-    Discovery:
-        - ``wkls.countries()``         DataFrame of all 219 countries
-        - ``wkls.us.regions()``        DataFrame of US regions
-        - ``wkls.us.ca.cities()``      DataFrame of CA cities
-
-    Configuration:
-        - ``wkls.overture_version()``  Current Overture version
-        - ``wkls.overture_releases()`` All available versions
-        - ``wkls.configure(overture_version="2025-12-17.0")``
-
-    Environment Variables:
-        - ``WKLS_DEBUG=true``  Print all SQL queries to stdout
-
-    Arrow Interop:
-        >>> import pyarrow as pa
-        >>> pa.array(wkls.us.ca.sanfrancisco)  # geoarrow.wkb array
-
-    Attributes:
-        chain: List of location identifiers in the chain.
     """
 
     _has_region: bool = True
@@ -466,7 +409,7 @@ class Wkl:
     def __init__(
         self,
         chain: list[str] | None = None,
-        df: sedonadb.dataframe.DataFrame | None = None,
+        _df: sedonadb.dataframe.DataFrame | None = None,
         _parent_id: str | None = None,
     ) -> None:
         """Initialize a Wkl instance.
@@ -486,16 +429,16 @@ class Wkl:
                 (``['us', 'ca']``) or human-readable names
                 (``['unitedstates', 'california']``). Empty for the
                 root instance and for result-mode.
-            df: Pre-resolved DataFrame to cache on this instance.
-                Used by listing/search methods to hand the caller a
-                ready-to-query ``Wkl`` without a chain.
+            _df: Internal. Pre-resolved DataFrame cached on this
+                instance by listing/search methods. Private because
+                users never supply it directly.
             _parent_id: Internal. At chain depth 4 (parent narrower)
                 this is the resolved depth-3 row's ``id``; it lets
                 ``resolve()`` filter by ``parent_id = ?``. Private
                 because users never supply it directly.
         """
         self.chain: list[str] = chain or []
-        self._df: sedonadb.dataframe.DataFrame | None = df
+        self._df: sedonadb.dataframe.DataFrame | None = _df
         self._parent_id: str | None = _parent_id
         self._country_iso: str = ""
         if not self.chain:
@@ -575,40 +518,109 @@ class Wkl:
     def _ambiguity_message(self, df: sedonadb.dataframe.DataFrame) -> str:
         """Format an ``AmbiguousLocationError`` message for a multi-row result.
 
-        Lists each candidate with subtype, parent name (via
-        ``parent_division_id``), and id. Caps at 10 rows to keep the
-        message digestible on wide result sets.
+        Shows copy-pasteable chains the caller can run next. Detects the
+        actual ambiguity class (differ by subtype / differ by parent /
+        differ only by id) and emits the narrowers that would resolve
+        each specific case — rather than a generic 'try .locality or
+        .county' hint that may not apply. Always lists ``by_id(...)``
+        for every candidate as the guaranteed fallback.
         """
-        where = ".".join(self.chain) if self.chain else "this query"
+        where = "wkls." + ".".join(self.chain) if self.chain else "this result"
         table = df.to_arrow_table()
         n = table.num_rows
-        lines = [f"{n} matches for {where}. Candidates:"]
         sample = min(n, 10)
+
+        candidates: list[dict[str, Any]] = []
         for i in range(sample):
-            subtype = table.column("subtype")[i].as_py() or "?"
-            row_id = table.column("id")[i].as_py()
-            parent_id = (
-                table.column("parent_id")[i].as_py()
-                if "parent_id" in table.column_names
-                else None
-            )
-            parent_name = "—"
+            row = {col: table.column(col)[i].as_py() for col in table.column_names}
+            attr = _chain_attr_for_row(row)
+            name = row.get("name_en") or row.get("name_primary") or "?"
+            parent_id = row.get("parent_id")
+            parent_attr: str | None = None
+            parent_name: str | None = None
             if parent_id:
-                parent = self._fetch_row(parent_id)
+                parent = self._fetch_row(str(parent_id))
                 if parent:
+                    parent_attr = _chain_attr_for_row(parent)
                     parent_name = (
-                        parent.get("name_en") or parent.get("name_primary") or "—"
+                        parent.get("name_en") or parent.get("name_primary") or None
                     )
-            lines.append(f"  • subtype={subtype:<12} parent={parent_name}  id={row_id}")
-        if n > sample:
-            lines.append(f"  … and {n - sample} more")
-        lines.append("Narrow with:")
-        lines.append(f"  {where}.<subtype>        # e.g. .locality, .county")
-        if self.chain and len(self.chain) < 4:
-            lines.append(
-                "  wkls.<country>.<region>.<parent>.<name>   # 4-level parent narrower"
+            candidates.append(
+                {
+                    "subtype": row.get("subtype") or "?",
+                    "id": row.get("id"),
+                    "attr": attr,
+                    "name": name,
+                    "parent_attr": parent_attr,
+                    "parent_name": parent_name,
+                }
             )
-        lines.append("  wkls.by_id('<id>')        # exact pick")
+
+        # Dots only step through the admin hierarchy. The two cases where
+        # a chain narrower can resolve the ambiguity:
+        #   1. Candidates have different normalized names (e.g. York vs
+        #      YorkCounty) — swap the last chain segment for the
+        #      unambiguous form.
+        #   2. Candidates share a normalized name but have different
+        #      parents (e.g. 18 Franklins in PA counties) — use the
+        #      4-level parent narrower.
+        # Anything else (same name + same parent, or no chain context)
+        # can only be resolved by picking a specific UUID.
+        attrs_differ = len({c["attr"] for c in candidates}) > 1
+        parents_differ = len({c["parent_attr"] for c in candidates}) > 1
+
+        lines: list[str] = []
+        chain_prefix = (
+            "wkls." + ".".join(self.chain[:-1]) if len(self.chain) >= 1 else "wkls"
+        )
+
+        if self.chain and attrs_differ:
+            lines.append(
+                f"{n} matches for '{where}'. Use the unambiguous normalized name:"
+            )
+            lines.append("")
+            for c in candidates:
+                lines.append(
+                    f"  {chain_prefix}.{c['attr']:<18}  # {c['name']} ({c['subtype']})"
+                )
+        elif self.chain and parents_differ:
+            lines.append(
+                f"{n} matches for '{where}'. Narrow by parent (4-level chain):"
+            )
+            lines.append("")
+            for c in candidates:
+                parent_label = c["parent_name"] or c["parent_attr"] or "?"
+                if c["parent_attr"]:
+                    lines.append(
+                        f"  {chain_prefix}.{c['parent_attr']}.{c['attr']}"
+                        f"  # {c['name']} in {parent_label}"
+                    )
+        else:
+            # Same attr + same parent (or no chain to narrow) — dot
+            # paths can't distinguish these. by_id is the only way.
+            lines.append(
+                f"{n} matches for '{where}'. No dot-access narrower "
+                "distinguishes these — use by_id:"
+            )
+            lines.append("")
+
+        # Always show by_id lines with literal UUID + .wkt() call so agents
+        # can copy-paste directly.
+        lines.append("")
+        lines.append("Or pick by id:")
+        id_cap = 5
+        for c in candidates[:id_cap]:
+            parent_note = f", in {c['parent_name']}" if c["parent_name"] else ""
+            lines.append(
+                f"  wkls.by_id('{c['id']}').wkt()"
+                f"  # {c['name']} ({c['subtype']}{parent_note})"
+            )
+        if len(candidates) > id_cap:
+            lines.append(f"  … and {len(candidates) - id_cap} more ids")
+
+        if n > sample:
+            lines.append(f"({n - sample} additional candidates truncated)")
+
         return "\n".join(lines)
 
     @classmethod
@@ -637,7 +649,7 @@ class Wkl:
         df = sedona.sql(queries.ROW_BY_ID.format(row_id=sqlescape(row_id)))
         if df.count() == 0:
             raise ValueError(f"No row found with id={row_id!r}.")
-        return cls(df=df)
+        return cls(_df=df)
 
     @property
     def path(self) -> str:
@@ -894,32 +906,6 @@ class Wkl:
                 f"'{self.__class__.__name__}' object has no attribute '{attr}'"
             )
 
-        # Subtype modifier: when the attr is a known subtype name
-        # (closed vocabulary) and we're holding a multi-row result,
-        # filter by subtype rather than drilling. Applies in both
-        # chain-mode and result-mode. Purely additive — subtype names
-        # don't collide with country/region/city names.
-        if attr.lower() in _SUBTYPE_NAMES and self._df is not None:
-            df = self._df
-            row_count = df.count()
-            if row_count > 1:
-                # Register current df as a temp view then filter in SQL.
-                # `overwrite=True` lets us reuse the view name across calls.
-                df.to_view("_wkls_subtype_filter", overwrite=True)
-                filtered = sedona.sql(
-                    f"SELECT * FROM _wkls_subtype_filter "
-                    f"WHERE subtype = '{sqlescape(attr.lower())}'"
-                )
-                # Preserve chain so .path etc. still reflect the chain position.
-                new_wkl = Wkl(list(self.chain), df=filtered)
-                new_wkl._country_iso = self._country_iso
-                return new_wkl
-            # Single row: if it matches the subtype, keep as-is; otherwise
-            # fall through so the attr is treated as a location name.
-            row = df.head(1).to_arrow_table()
-            if row.column("subtype")[0].as_py() == attr.lower():
-                return self
-
         # Result-mode: pass through to the cached DataFrame so standard
         # ops (count, to_arrow_table, head, show, …) keep working.
         if not self.chain and self._df is not None:
@@ -1004,17 +990,10 @@ class Wkl:
             return base
         if row_count == 1:
             return base | _DIR_CITY_METHODS
-        # Multi-row: surface subtype modifiers actually present in
-        # the result so callers can narrow ambiguity.
-        self._df.to_view("_wkls_dir_subtypes", overwrite=True)
-        subtypes_tbl = sedona.sql(
-            "SELECT DISTINCT subtype FROM _wkls_dir_subtypes"
-        ).to_arrow_table()
-        present = {
-            subtypes_tbl.column("subtype")[i].as_py()
-            for i in range(subtypes_tbl.num_rows)
-        }
-        return base | (present & _SUBTYPE_NAMES)
+        # Multi-row: only the DataFrame inspection verbs. Dot access
+        # is admin-hierarchy only — there's no in-place subtype filter,
+        # so nothing else belongs in the surface here.
+        return base
 
     def _dir_countries(self) -> list[str]:
         """Return cached country-level dir entries (ISO codes + names)."""
@@ -1476,6 +1455,21 @@ class Wkl:
         """
         return self._get_geom_expr("ST_AsGeoJSON(geometry)")
 
+    def to_dicts(self) -> list[dict[str, Any]]:
+        """Return the rows as a list of plain Python dicts.
+
+        Convenience for quick iteration and filtering — avoids the
+        pyarrow.Table API. Equivalent to
+        ``self.to_arrow_table().to_pylist()``.
+
+        Example:
+            >>> non_us = [
+            ...     r for r in wkls.search("franklin").to_dicts()
+            ...     if r["country"] != "US"
+            ... ]
+        """
+        return self.resolve().to_arrow_table().to_pylist()
+
     def svg(self, relative: bool = False, precision: int = 15) -> str:
         """Get SVG path geometry for the first result.
 
@@ -1529,7 +1523,7 @@ class Wkl:
             FROM wkls
             WHERE subtype = 'dependency'
         """
-        return Wkl(df=sedona.sql(query))
+        return Wkl(_df=sedona.sql(query))
 
     def countries(self) -> Wkl:
         """Get all countries.
@@ -1551,7 +1545,7 @@ class Wkl:
             FROM wkls
             WHERE subtype = 'country'
         """
-        return Wkl(df=sedona.sql(query))
+        return Wkl(_df=sedona.sql(query))
 
     def regions(self) -> Wkl:
         """List regions in the current chain scope.
@@ -1587,7 +1581,7 @@ class Wkl:
 
         if depth == 0:
             query = f"SELECT * FROM wkls WHERE subtype IN {subtype_filter}"
-            return Wkl(df=sedona.sql(query))
+            return Wkl(_df=sedona.sql(query))
 
         if depth == 1 or not self._has_region:
             # Country-scoped: depth 1, or depth 2 on a no-region country
@@ -1598,7 +1592,7 @@ class Wkl:
                   AND subtype IN {subtype_filter}
             """
             return Wkl(
-                df=sedona.sql(query.format(country=sqlescape(self._country_iso)))
+                _df=sedona.sql(query.format(country=sqlescape(self._country_iso)))
             )
 
         if depth == 2:
@@ -1610,7 +1604,7 @@ class Wkl:
                   AND subtype IN {subtype_filter}
             """
             return Wkl(
-                df=sedona.sql(
+                _df=sedona.sql(
                     query.format(
                         country=sqlescape(self._country_iso),
                         region=sqlescape(self._region_iso),
@@ -1634,7 +1628,7 @@ class Wkl:
             WHERE parent_id = '{{parent_id}}'
               AND subtype IN {subtype_filter}
         """
-        return Wkl(df=sedona.sql(query.format(parent_id=sqlescape(row_id))))
+        return Wkl(_df=sedona.sql(query.format(parent_id=sqlescape(row_id))))
 
     def counties(self) -> Wkl:
         """List counties in the current chain scope.
@@ -1683,7 +1677,7 @@ class Wkl:
             )
 
         query = """SELECT DISTINCT subtype FROM wkls"""
-        return Wkl(df=sedona.sql(query))
+        return Wkl(_df=sedona.sql(query))
 
     def search(self, query: str) -> Wkl:
         """Search for locations whose names contain a substring.
@@ -1743,4 +1737,4 @@ class Wkl:
                 region=sqlescape(self._region_iso),
                 query=escaped_query,
             )
-        return Wkl(df=sedona.sql(sql))
+        return Wkl(_df=sedona.sql(sql))

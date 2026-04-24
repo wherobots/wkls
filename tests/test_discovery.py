@@ -101,14 +101,28 @@ def test_dir_country_level_has_path_but_not_parent():
     assert "parent" not in entries
 
 
-def test_dir_result_mode_multi_row_exposes_narrowers():
-    """dir() on an ambiguous result surfaces the subtype modifiers
-    recommended by AmbiguousLocationError, plus DataFrame verbs, and
-    omits geometry methods that would raise."""
+def test_dir_result_mode_multi_row_exposes_inspection_verbs_only():
+    """dir() on an ambiguous result shows DataFrame inspection verbs only.
+
+    Dot access is admin-hierarchy; there are no in-place filters to
+    advertise. Geometry methods are omitted because they'd raise on
+    multi-row.
+    """
     entries = set(dir(wkls.us.ca.search("san francisco")))
-    assert {"county", "locality"}.issubset(entries)  # narrowers
-    assert {"count", "head", "to_arrow_table"}.issubset(entries)  # df verbs
+    assert {"count", "head", "to_arrow_table", "to_dicts"}.issubset(entries)
     assert entries.isdisjoint({"wkt", "wkb", "geojson"})  # geometry would raise
+    # No subtype narrowers — those were removed.
+    for subtype in (
+        "country",
+        "dependency",
+        "region",
+        "county",
+        "locality",
+        "localadmin",
+    ):
+        assert subtype not in entries, (
+            f"dir() should not advertise subtype '{subtype}' as a narrower"
+        )
 
 
 def test_dir_result_mode_single_row_exposes_geometry_and_nav():
@@ -122,7 +136,14 @@ def test_dir_result_mode_single_row_exposes_geometry_and_nav():
 def test_dir_result_mode_empty_result():
     """dir() on an empty result exposes only DataFrame inspection verbs."""
     entries = set(dir(wkls.us.ca.search("zzzzznope")))
-    assert entries == {"count", "head", "limit", "show", "to_arrow_table"}
+    assert entries == {
+        "count",
+        "head",
+        "limit",
+        "show",
+        "to_arrow_table",
+        "to_dicts",
+    }
 
 
 def test_dir_cached_no_query_on_repeat(capsys):
@@ -216,6 +237,33 @@ def test_search_normalizes_query_to_dot_access_form():
     spaced = wkls.us.ca.search("san francisco").count()
     assert spaceless == spaced
     assert spaceless >= 1  # at least the SF locality
+
+
+# ---------- to_dicts() ----------
+
+
+def test_to_dicts_returns_list_of_dicts():
+    """to_dicts() returns plain dict rows ready for Python iteration."""
+    rows = wkls.us.ca.counties().to_dicts()
+    assert isinstance(rows, list)
+    assert rows and isinstance(rows[0], dict)
+    # Schema we document — these keys exist on every row.
+    for key in ("id", "country", "region", "subtype", "name_primary"):
+        assert key in rows[0], f"missing key {key!r}"
+
+
+def test_to_dicts_enables_simple_filtering():
+    """The use case: filter a multi-row search result in pure Python."""
+    non_us = [r for r in wkls.search("franklin").to_dicts() if r["country"] != "US"]
+    # At time of writing there are Franklins in AU/CA/NZ.
+    assert len(non_us) >= 1
+    assert all(r["country"] != "US" for r in non_us)
+
+
+def test_to_dicts_in_result_mode_dir():
+    """dir() on a multi-row result surfaces to_dicts alongside other df verbs."""
+    entries = set(dir(wkls.us.ca.search("san")))
+    assert "to_dicts" in entries
 
 
 # ---------- Subtree-scoped list methods ----------

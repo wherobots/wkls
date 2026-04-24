@@ -15,36 +15,50 @@ Chain depth maps to the admin hierarchy (max 3 for unambiguous cases):
 Names are lowercased with non-alphanumerics stripped; ISO codes work
 too: wkls.us, wkls.unitedstates, wkls.us.ca, wkls.us.california.
 
-When a chain resolves to >1 row, geometry methods raise
-AmbiguousLocationError (a ValueError subclass). Three dot-faithful
-ways to narrow, plus an escape hatch:
+Resolving ambiguity — when a chain resolves to >1 row, geometry
+methods raise AmbiguousLocationError (a ValueError subclass) with a
+list of candidates and copy-paste-ready chains. Dot access is strictly
+admin-hierarchy — one way to narrow is via the chain, one escape hatch:
 
-    wkls.us.ca.mission.locality            # subtype modifier
-    wkls.us.pa.adamscounty.franklin        # 4-level parent narrower
-    wkls.by_id('273bc9a0-...')             # exact pick (UUID from
-                                           #   the error message)
+    wkls.us.pa.adamscounty.franklin        # (a) 4-level parent narrower
+    wkls.by_id('273bc9a0-...')             # (b) exact pick (UUID from the error)
 
-Navigation and introspection:
+When an *intermediate* chain step is ambiguous (e.g. 'york' in PA is
+both a locality and a county), pick the unambiguous full normalized
+name of the intermediate row:
+
+    wkls.us.pa.york.wkt()                  # raises — 'york' is ambiguous
+    wkls.us.pa.yorkcounty.franklin.wkt()   # ✓ pick the County unambiguously,
+                                           #   then drill for the child
+
+Search — .search(q) at any chain depth. Lead with a scoped search to
+filter by country/region; fall back to global only when scope isn't
+known. The query is normalized (lowercase, non-alphanumerics stripped),
+so 'san francisco' / 'San Francisco' / 'sanfrancisco' all match.
+
+    wkls.au.search('franklin')             # Franklin(s) in Australia
+    wkls.us.tn.search('franklin')          # Franklins in Tennessee only
+    wkls.search('franklin')                # global — 125+ rows, use sparingly
+
+Every call returns a Wkl — one unified type. Inspect with .count(),
+.head(), .to_arrow_table(), or .to_dicts() for a plain list-of-dicts
+that's easy to iterate / filter in Python. Extract geometry with
+.wkt() / .wkb() / .geojson() when the Wkl holds exactly one row.
+
+Navigation — .parent walks up one level; .path returns the canonical
+dot-chain string that round-trips via eval:
 
     wkls.us.ca.sanfrancisco.parent         # → California
     wkls.us.ca.sanfrancisco.path           # 'wkls.us.ca.sanfrancisco'
-    wkls.us.ca.search('mission')           # substring search, any depth
 
-Listing scopes narrow with chain depth:
+Listing — scopes narrow with chain depth:
 
     wkls.countries()                       # all 219 countries
     wkls.us.regions()                      # 51 US regions
     wkls.us.ca.counties()                  # 58 CA counties
     wkls.us.ca.sandiegocounty.cities()     # 19 localities in SD County
 
-Every call returns a Wkl — one unified type. Inspect with .count(),
-.head(), .to_arrow_table(); extract geometry with .wkt() / .wkb() /
-.geojson() when the Wkl holds exactly one row.
-
-For the full agent reference including error handling patterns:
-    >>> print(wkls.__llm_guide__)
-
-Two ways to use the library:
+Two ways to use the library (equivalent):
 
     >>> import wkls                        # module-level ergonomics
     >>> wkls.us.ca.sanfrancisco.wkt()
@@ -57,7 +71,6 @@ Two ways to use the library:
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
-from pathlib import Path
 from typing import Any
 
 from .core import Wkl
@@ -68,20 +81,6 @@ try:
     __version__ = version("wkls")
 except PackageNotFoundError:
     __version__ = "0.0.0.dev"
-
-
-def _load_llm_guide() -> str:
-    """Load AGENTS.md from the installed wheel or the dev repo root."""
-    pkg_path = Path(__file__).parent / "AGENTS.md"
-    if pkg_path.exists():
-        return pkg_path.read_text(encoding="utf-8")
-    repo_path = Path(__file__).parent.parent / "AGENTS.md"
-    if repo_path.exists():
-        return repo_path.read_text(encoding="utf-8")
-    return ""
-
-
-__llm_guide__: str = _load_llm_guide()
 
 
 _instance: Wkl | None = None
@@ -113,7 +112,7 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
-    module_attrs = list(__all__) + ["__version__", "__llm_guide__"]
+    module_attrs = list(__all__) + ["__version__"]
     try:
         wkl_attrs = dir(_get_instance())
     except Exception:

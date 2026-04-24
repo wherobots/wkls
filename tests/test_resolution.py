@@ -71,23 +71,6 @@ def test_version_attribute():
     assert len(wkls.__version__) > 0
 
 
-def test_llm_guide_attribute():
-    """__llm_guide__ ships the AGENTS.md reference for runtime access."""
-    assert hasattr(wkls, "__llm_guide__")
-    guide = wkls.__llm_guide__
-    assert isinstance(guide, str)
-    # Sanity-check the content covers the core agent-relevant surface.
-    for phrase in (
-        "Using wkls from an AI agent",
-        "AmbiguousLocationError",
-        "by_id(",
-        ".search(",
-        ".parent",
-        ".path",
-    ):
-        assert phrase in guide, f"missing from __llm_guide__: {phrase!r}"
-
-
 def test_repr_header_root():
     """Root Wkl() repr is a terse label."""
     assert repr(Wkl()) == "Wkl(root)"
@@ -128,9 +111,14 @@ def test_module_docstring_leads_with_quickstart():
     assert "Quickstart:" in doc
     # Disambiguation must be advertised up front, not buried.
     assert "AmbiguousLocationError" in doc
-    assert "subtype modifier" in doc
     assert "parent narrower" in doc
     assert "by_id(" in doc
+    # Intermediate ambiguity — the York-in-PA case from the agent test.
+    assert "yorkcounty" in doc
+    # Scoped search must be the lead example (before global .search()).
+    assert "wkls.au.search" in doc or "wkls.us.tn.search" in doc
+    # to_dicts mentioned as the iteration helper.
+    assert "to_dicts()" in doc
 
 
 # ---------- Basic chain access smoke ----------

@@ -7,7 +7,7 @@ Covers:
 - ``Wkl.parent`` for walking up one level.
 - ``Wkl.path`` — the canonical dot-access string that round-trips.
 - Chain depth 4 (parent narrower): ``wkls.us.pa.adamscounty.franklin``.
-- Subtype-as-modifier: ``wkls.search('united').country`` filters to subtype.
+- Dot access is admin-hierarchy only — no subtype filtering via attrs.
 """
 
 from __future__ import annotations
@@ -28,18 +28,44 @@ def test_ambiguity_raises_on_multi_row_geometry():
         wkls.us.pa.franklin.wkt()
 
 
-def test_ambiguity_error_lists_candidates_with_parent_and_subtype():
-    """Error message shows candidate rows with subtype + parent name."""
+def test_ambiguity_error_lists_candidates_with_copy_pasteable_chains():
+    """Error message echoes the query, lists each candidate's subtype + parent,
+    and surfaces copy-pasteable narrower chains + literal by_id(...).wkt()."""
     try:
         wkls.us.pa.franklin.wkt()
     except AmbiguousLocationError as e:
         msg = str(e)
     else:
         pytest.fail("expected AmbiguousLocationError")
-    assert "18 matches" in msg
-    assert "subtype=locality" in msg
-    assert "parent=" in msg  # parent county name appears
-    assert "County" in msg  # at least one parent is a *County
+    # Query echoed with wkls. prefix so it's copy-pasteable.
+    assert "18 matches for 'wkls.us.pa.franklin'" in msg
+    # 18 Franklins share subtype + attr but differ by parent; the narrower
+    # should be the 4-level parent-narrower form with at least one known
+    # Pennsylvania county name in the normalized attribute form.
+    assert "Narrow by parent (4-level chain)" in msg
+    assert "wkls.us.pa.yorkcounty.franklin" in msg  # known candidate
+    # Literal by_id calls with .wkt() for copy-paste.
+    assert "wkls.by_id('" in msg
+    assert ".wkt()" in msg
+    # Subtype + parent name appear in the by_id comments.
+    assert "(locality," in msg
+    assert "County" in msg
+
+
+def test_ambiguity_error_indistinguishable_candidates_uses_by_id():
+    """When no dot-access narrower distinguishes candidates, the error
+    explicitly says so and surfaces by_id calls for each candidate."""
+    # Two Yorks in PA share subtype AND parent — only by_id resolves.
+    try:
+        wkls.us.pa.york.wkt()
+    except AmbiguousLocationError as e:
+        msg = str(e)
+    else:
+        pytest.fail("expected AmbiguousLocationError")
+    assert "No dot-access narrower" in msg
+    assert "Or pick by id" in msg
+    # Two literal by_id calls, one per candidate.
+    assert msg.count("wkls.by_id('") == 2
 
 
 def test_ambiguity_is_valueerror_subclass():
@@ -145,16 +171,16 @@ def test_path_multi_row_raises():
         wkls.search("united").path  # noqa: B018
 
 
-def test_path_after_subtype_modifier_on_search():
-    """.path on a filtered search result walks parent_id correctly.
+def test_path_on_single_row_search_result_walks_parent_id():
+    """.path on a single-row search result walks parent_id correctly.
 
     Regression: SEARCH_* templates used to project an explicit column list
     that omitted parent_id, so the walk loop bailed after one iteration
     and the returned path contained only the leaf segment.
     """
-    sd = wkls.us.ca.search("san d").county
-    assert sd._df.count() == 1
-    assert sd.path == "wkls.us.ca.sandiegocounty"
+    oakland = wkls.us.ca.search("oakland")
+    assert oakland.count() == 1
+    assert oakland.path == "wkls.us.ca.alamedacounty.oakland"
 
 
 # ---------- Chain depth 4 (parent narrower) ----------
@@ -181,31 +207,38 @@ def test_chain_depth_5_raises():
         wkls.us.pa.adamscounty.franklin.deeper  # noqa: B018
 
 
-# ---------- Subtype-as-modifier ----------
+# ---------- Dot access is admin-hierarchy only ----------
 
 
-def test_subtype_modifier_filters_multi_row():
-    """.<subtype> on a multi-row Wkl filters by subtype."""
-    all_united = wkls.search("united")
-    assert all_united.count() > 1  # countries + dependencies
-    countries_only = all_united.country
-    assert countries_only.count() >= 1
-    # All rows in the filtered result have subtype='country'
-    table = countries_only.to_arrow_table()
-    for i in range(table.num_rows):
-        assert table.column("subtype")[i].as_py() == "country"
+def test_subtype_is_not_a_chain_filter():
+    """Subtype names are not interpreted as in-place filters.
+
+    Dots step through the admin hierarchy, nothing else. On a
+    multi-row result-mode Wkl, attribute access either drills as a
+    location name (and likely returns empty) or raises — it does NOT
+    filter the current result by subtype.
+    """
+    multi = wkls.us.ca.search("san")
+    assert multi.count() > 1
+    # Accessing 'locality' on a result-mode Wkl should go through the
+    # DataFrame passthrough (sedona DataFrames don't have a .locality
+    # attribute) and raise AttributeError, NOT silently filter.
+    with pytest.raises(AttributeError):
+        multi.locality  # noqa: B018
 
 
-def test_subtype_modifier_dependency():
-    """The 'dependency' subtype filter works."""
-    deps = wkls.search("united").dependency
-    table = deps.to_arrow_table()
-    for i in range(table.num_rows):
-        assert table.column("subtype")[i].as_py() == "dependency"
-
-
-def test_subtype_modifier_on_single_row_matching_returns_self():
-    """Subtype modifier on a single-row Wkl whose subtype matches is a no-op."""
-    sf = wkls.us.ca.sanfrancisco
-    subtype = sf._df.to_arrow_table().column("subtype")[0].as_py()
-    assert sf.__getattr__(subtype) is sf
+def test_result_mode_dir_omits_subtype_names():
+    """dir() on a multi-row result no longer surfaces subtype narrowers."""
+    entries = set(dir(wkls.us.ca.search("san")))
+    # Dot access is hierarchy only; subtype filters are gone.
+    for subtype in (
+        "country",
+        "dependency",
+        "region",
+        "county",
+        "locality",
+        "localadmin",
+    ):
+        assert subtype not in entries, (
+            f"dir() should not advertise subtype '{subtype}' as a narrower"
+        )
