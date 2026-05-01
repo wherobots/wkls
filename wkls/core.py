@@ -1623,18 +1623,6 @@ class Wkl:
         """
         return self._get_geom_expr("ST_AsWKB(geometry)")
 
-    def hexwkb(self) -> str:
-        """Get hex-encoded WKB geometry for the first result.
-
-        Returns:
-            Hex-encoded WKB string.
-
-        Raises:
-            NotImplementedError: This format is not yet supported in SedonaDB.
-        """
-        # return self._get_geom_expr("ST_AsHEXWKB(geometry)")
-        raise NotImplementedError("ST_AsHEXWKB() isn't implemented yet")
-
     def geojson(self) -> str:
         """Get GeoJSON geometry for the first result.
 
@@ -1660,24 +1648,6 @@ class Wkl:
             ... ]
         """
         return self.resolve().to_arrow_table().to_pylist()
-
-    def svg(self, relative: bool = False, precision: int = 15) -> str:
-        """Get SVG path geometry for the first result.
-
-        Args:
-            relative: Use relative coordinates if True.
-            precision: Decimal precision for coordinates.
-
-        Returns:
-            SVG path string.
-
-        Raises:
-            NotImplementedError: This format is not yet supported in SedonaDB.
-        """
-        # return self._get_geom_expr(
-        #     f"ST_AsSVG(geometry, {str(relative).lower()}, {precision})"
-        # )
-        raise NotImplementedError("ST_AsSVG() isn't implemented yet")
 
     def __arrow_c_array__(self, requested_schema=None):
         """Implement the Arrow PyCapsule protocol

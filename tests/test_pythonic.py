@@ -364,3 +364,16 @@ def test_row_parent_walks_up():
     assert len(parent_rows) == 1
     assert parent_rows[0]["country"] == "US"
     assert parent_rows[0]["region"] == "US-CA"
+
+
+# ── svg / hexwkb removal (v1.2.0) ──────────────────────────────────
+
+
+def test_svg_removed():
+    """svg() no longer exists on Wkl."""
+    assert not hasattr(wkls.Wkl, "svg")
+
+
+def test_hexwkb_removed():
+    """hexwkb() no longer exists on Wkl."""
+    assert not hasattr(wkls.Wkl, "hexwkb")
