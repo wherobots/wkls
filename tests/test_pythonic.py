@@ -9,7 +9,7 @@ Covers the v1.3.0 changes:
 - ``.head(n)`` / ``.limit(n)`` now return ``Wkl`` (was: sedona DataFrame).
 - ``__getattr__`` passthrough narrowed to the allowlist in
   ``_DIR_DATAFRAME_METHODS``. ``.filter`` / ``.select`` / etc. raise
-  ``AttributeError`` pointing at ``.resolve()``.
+   ``AttributeError`` pointing at ``.to_arrow_table()``.
 - Bracket string subscript raises ``TypeError`` (was: ``DeprecationWarning``
   shim for chain access / wildcard).
 
@@ -259,22 +259,22 @@ def test_head_to_dicts_chain():
 
 def test_filter_raises_attribute_error():
     """`.filter()` used to silently pass through to sedona; now it raises."""
-    with pytest.raises(AttributeError, match=r"\.resolve\(\)"):
+    with pytest.raises(AttributeError, match=r"\.to_arrow_table\(\)"):
         wkls.us.ca.counties().filter(None)
 
 
 def test_select_raises_attribute_error():
-    with pytest.raises(AttributeError, match=r"\.resolve\(\)"):
+    with pytest.raises(AttributeError, match=r"\.to_arrow_table\(\)"):
         wkls.us.ca.counties().select("id")
 
 
 def test_group_by_raises_attribute_error():
-    with pytest.raises(AttributeError, match=r"\.resolve\(\)"):
+    with pytest.raises(AttributeError, match=r"\.to_arrow_table\(\)"):
         wkls.us.ca.counties().group_by("subtype")
 
 
 def test_arbitrary_sedona_method_raises():
-    with pytest.raises(AttributeError, match=r"\.resolve\(\)"):
+    with pytest.raises(AttributeError, match=r"\.to_arrow_table\(\)"):
         wkls.us.ca.counties().nonexistent_method()
 
 
@@ -303,22 +303,22 @@ def test_to_dicts_unchanged():
     assert all(isinstance(r, dict) for r in rows)
 
 
-# ---------- Surface 3: .resolve() escape ----------
+# ---------- Surface 3: ._resolve() escape ----------
 
 
 def test_resolve_returns_sedona_dataframe():
-    df = wkls.us.ca.counties().resolve()
+    df = wkls.us.ca.counties()._resolve()
     assert isinstance(df, sedonadb.dataframe.DataFrame)
 
 
 def test_resolve_supports_sedona_api():
-    """The object returned by .resolve() is a real sedona DataFrame.
+    """The object returned by ._resolve() is a real sedona DataFrame.
 
-    Surface 3's contract: .resolve() hands you sedona's API. We don't
+    Surface 3's contract: ._resolve() hands you sedona's API. We don't
     re-test sedona's behavior here; we just confirm the handoff works
     and users can call sedona-native methods on the result.
     """
-    df = wkls.us.ca.counties().resolve()
+    df = wkls.us.ca.counties()._resolve()
     assert isinstance(df, sedonadb.dataframe.DataFrame)
     # Call something sedona-native (not surfaced on Wkl directly).
     assert df.count() >= 1

@@ -362,7 +362,7 @@ _STR_SUBSCRIPT_MSG = (
     "  - For chain drill: use dot access — wkls.us.ca.sanfrancisco\n"
     "  - For name search: use .search() — wkls.us.search('francisco')\n"
     "  - For a specific row's column: use .to_dicts() and index the dict\n"
-    "  - For arbitrary DataFrame ops: call .resolve() to drop to sedona"
+    "  - For arbitrary DataFrame ops: call .to_arrow_table() and use your engine of choice"
 )
 
 
@@ -793,7 +793,7 @@ class Wkl:
             return "wkls"
 
         # Result-mode: must be a single row to have a single canonical path.
-        row_count = self.resolve().count()
+        row_count = self._resolve().count()
         if row_count != 1:
             raise ValueError(
                 f".path requires a single-row Wkl; this one has {row_count} rows."
@@ -801,7 +801,7 @@ class Wkl:
 
         # Walk up parent_id collecting chain attributes. Names are
         # normalized to lowercase + no whitespace, matching __getattr__.
-        table = self.resolve().head(1).to_arrow_table()
+        table = self._resolve().head(1).to_arrow_table()
         row = {col: table.column(col)[0].as_py() for col in table.column_names}
         parts: list[str] = []
         # At most 4 hops (country → region → city). Defensive cap in case
@@ -838,7 +838,7 @@ class Wkl:
         # attribute lookup protocol treats that as "attribute doesn't exist"
         # and falls through to __getattr__, which would drill "parent" as
         # a location name and return an empty Wkl. Use ValueError.
-        df = self.resolve()
+        df = self._resolve()
         row_count = df.count()
         if row_count != 1:
             raise ValueError(
@@ -1030,7 +1030,7 @@ class Wkl:
         # Depth 4: parent-narrower. The preceding 3-level chain must resolve
         # to exactly one row; we use that row's id to filter children.
         if len(new_chain) == 4:
-            df = self._df if self._df is not None else self.resolve()
+            df = self._df if self._df is not None else self._resolve()
             count = df.count()
             if count != 1:
                 raise ValueError(
@@ -1146,7 +1146,7 @@ class Wkl:
         round-trips on the same ``Wkl``. Immutable after first call.
         """
         if self._arrow_table is None:
-            self._arrow_table = self.resolve().to_arrow_table()
+            self._arrow_table = self._resolve().to_arrow_table()
         return self._arrow_table
 
     def __len__(self) -> int:
@@ -1246,7 +1246,7 @@ class Wkl:
         if step != 1:
             raise TypeError(
                 f"Wkl does not support sliced steps (got step={step}). "
-                "Call .resolve() for arbitrary DataFrame slicing."
+                "Call .to_arrow_table() for arbitrary DataFrame slicing."
             )
         length = max(0, stop - start)
         return _wkl_from_arrow_slice(table.slice(start, length))
@@ -1293,7 +1293,7 @@ class Wkl:
         if not self.chain and self._df is None:
             return "Wkl(root)"
 
-        base_repr = repr(self.resolve())
+        base_repr = repr(self._resolve())
         header = self._repr_header()
 
         if self.chain:
@@ -1347,7 +1347,7 @@ class Wkl:
         ``__repr__`` never throws.
         """
         try:
-            df = self._df if self._df is not None else self.resolve()
+            df = self._df if self._df is not None else self._resolve()
             df.to_view("_wkls_repr_subtypes", overwrite=True)
             tbl = sedona.sql(
                 "SELECT subtype, COUNT(*) AS n FROM _wkls_repr_subtypes "
@@ -1360,27 +1360,19 @@ class Wkl:
         except Exception:
             return {}
 
-    def resolve(self) -> sedonadb.dataframe.DataFrame:
-        """Resolve the location chain to a DataFrame.
+    def _build_query(self) -> tuple[str, dict[str, str]]:
+        """Return (query_template, params) for the current chain.
 
-        Idempotent: returns ``self._df`` if already populated (by a
-        prior ``resolve()`` on this instance, or explicitly by
-        listing/search methods in result-mode). Otherwise executes the
-        appropriate SQL query based on the chain depth.
-
-        Returns:
-            DataFrame containing matching location records.
+        Does NOT execute the query. Does NOT set ``self._df``.
+        Caller is responsible for formatting and executing the query.
 
         Raises:
-            ValueError: If the chain is empty and no cached DataFrame
-                is available (i.e., called on a root ``Wkl``).
+            ValueError: If chain is empty.
         """
-        if self._df is not None:
-            return self._df
-
         if not self.chain:
             raise ValueError(
-                "No attributes in the chain. Use wkls.<country> or wkls.<country>.<region>, etc."
+                "No attributes in the chain. Use wkls.<country> or "
+                "wkls.<country>.<region>, etc."
             )
 
         params: dict[str, str] = {}
@@ -1408,22 +1400,37 @@ class Wkl:
             params["region"] = self._region_iso
             params["city"] = self.chain[2]
 
-        # Depth 4: parent-narrower. Filter by parent_id of the resolved
-        # depth-3 row (passed in via __init__ _parent_id).
         if len(self.chain) > 3:
             if not self._parent_id:
                 raise ValueError(
                     "4-level chain requires a resolved parent_id; "
                     "construct via __getattr__ so the parent is known."
                 )
-            self._df = sedona.sql(
-                queries.CHILDREN_BY_PARENT.format(
-                    parent_id=sqlescape(self._parent_id),
-                    name=sqlescape(self.chain[3]),
-                )
-            )
+            query = queries.CHILDREN_BY_PARENT
+            params["parent_id"] = self._parent_id
+            params["name"] = self.chain[3]
+
+        return query, params
+
+    def _resolve(self) -> sedonadb.dataframe.DataFrame:
+        """Resolve the location chain to a SedonaDB DataFrame.
+
+        Idempotent: returns ``self._df`` if already populated (by a
+        prior ``_resolve()`` on this instance, or explicitly by
+        listing/search methods in result-mode). Otherwise executes the
+        appropriate SQL query based on the chain depth.
+
+        Returns:
+            DataFrame containing matching location records.
+
+        Raises:
+            ValueError: If the chain is empty and no cached DataFrame
+                is available (i.e., called on a root ``Wkl``).
+        """
+        if self._df is not None:
             return self._df
 
+        query, params = self._build_query()
         self._df = sedona.sql(
             query.format(**{k: sqlescape(v) for k, v in params.items()})
         )
@@ -1544,7 +1551,7 @@ class Wkl:
                 registered (first geometry call only; requires S3 access).
         """
         _ensure_overture_loaded()
-        df = self.resolve()
+        df = self._resolve()
         row_count = df.count()
         if row_count == 0:
             # Chain-mode empty: fall back to the "Did you mean?" hint.
@@ -1647,7 +1654,7 @@ class Wkl:
             ...     if r["country"] != "US"
             ... ]
         """
-        return self.resolve().to_arrow_table().to_pylist()
+        return self._resolve().to_arrow_table().to_pylist()
 
     def __arrow_c_array__(self, requested_schema=None):
         """Implement the Arrow PyCapsule protocol
@@ -1836,7 +1843,7 @@ class Wkl:
         # matches. This keeps the pattern consistent with depth 1-2
         # (where ``regions()`` at region level returns the region row
         # itself) — the current row is in-scope for its own subtype.
-        df = self.resolve()
+        df = self._resolve()
         row_count = df.count()
         if row_count != 1:
             raise ValueError(
@@ -1936,7 +1943,7 @@ class Wkl:
 
         # Depth >= 3: scope is self + descendants (same semantics as
         # counties()/cities() past region level).
-        df = self.resolve()
+        df = self._resolve()
         row_count = df.count()
         if row_count != 1:
             raise ValueError(
@@ -2063,5 +2070,5 @@ def _passthrough_error(attr: str) -> str:
     return (
         f"'Wkl' object has no attribute {attr!r}. "
         f"For DataFrame operations beyond admin-boundary lookup, call "
-        f".resolve() to escape to SedonaDB: wkl.resolve().{attr}(...)"
+        f".to_arrow_table() to get a PyArrow Table."
     )

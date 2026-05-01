@@ -150,14 +150,14 @@ def test_parent_walks_up_one_level():
     sf = wkls.us.ca.sanfrancisco
     parent = sf.parent
     assert isinstance(parent, Wkl)
-    table = parent.resolve().to_arrow_table()
+    table = parent._resolve().to_arrow_table()
     assert table.column("name_primary")[0].as_py() == "California"
 
 
 def test_parent_parent_chain():
     """.parent.parent walks up two levels."""
     grandparent = wkls.us.ca.sanfrancisco.parent.parent
-    table = grandparent.resolve().to_arrow_table()
+    table = grandparent._resolve().to_arrow_table()
     assert table.column("name_primary")[0].as_py() == "United States"
 
 
@@ -225,7 +225,7 @@ def test_chain_depth_4_resolves_ambiguity():
     """wkls.us.pa.franklin is ambiguous, but parent narrower resolves it."""
     # Adams County Franklin should be unique.
     result = wkls.us.pa.adamscounty.franklin
-    assert result.resolve().count() == 1
+    assert result._resolve().count() == 1
     assert result.wkt().startswith(("POLYGON", "MULTIPOLYGON"))
 
 
