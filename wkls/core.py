@@ -1431,6 +1431,8 @@ class Wkl:
             return self._df
 
         query, params = self._build_query()
+        params["table"] = "wkls"
+        params["columns"] = "*"
         self._df = sedona.sql(
             query.format(**{k: sqlescape(v) for k, v in params.items()})
         )
@@ -1642,19 +1644,133 @@ class Wkl:
         return self._get_geom_expr("ST_AsGeoJSON(geometry)")
 
     def to_dicts(self) -> list[dict[str, Any]]:
-        """Return the rows as a list of plain Python dicts.
+        """Return rows as plain dicts — metadata only, never geometry.
 
-        Convenience for quick iteration and filtering — avoids the
-        pyarrow.Table API. Equivalent to
-        ``self.to_arrow_table().to_pylist()``.
+        The cheap, programmatic-inspection complement to ``to_arrow_table()``.
+        No query against the geometry view, no Arrow extension types — just
+        admin-metadata columns as Python primitives.
 
-        Example:
-            >>> non_us = [
-            ...     r for r in wkls.search("franklin").to_dicts()
-            ...     if r["country"] != "US"
-            ... ]
+        For geometry, use ``to_arrow_table()`` (multi-row, GeoArrow WKB)
+        or the single-row terminals (``.wkt()`` / ``.geojson()`` / ``.wkb()``).
+
+        Examples:
+            >>> hits = wkls.search("franklin").to_dicts()
+            >>> [r for r in hits if r["country"] != "US"]
         """
         return self._resolve().to_arrow_table().to_pylist()
+
+    def to_arrow_table(self) -> pa.Table:
+        """Materialize this Wkl as a pyarrow.Table — the Surface 3 escape.
+
+        Returns a standalone pyarrow.Table suitable for handoff to any
+        Arrow-aware engine (sedona, DuckDB, GeoPandas, Polars).
+        Geometry is included as a GeoArrow WKB extension column with
+        CRS = OGC:CRS84.
+
+        Chain-mode Wkls (e.g. ``wkls.us.ca.cities()``) issue a single
+        query directly against the Overture parquet — no local-then-remote
+        two-pass. Result-mode Wkls (from ``.search()``, ``.by_id()``)
+        use an id-based lookup against Overture.
+
+        For metadata-only inspection (no geometry), use ``to_dicts()``
+        instead.
+
+        Returns:
+            pyarrow.Table with metadata columns plus a 'geometry' column
+            typed as ``geoarrow.wkb<OGC:CRS84>``.
+
+        Raises:
+            ValueError: If the chain is empty and no cached DataFrame is
+                available (root Wkl).
+
+        Examples:
+            >>> tbl = wkls.us.ca.cities().to_arrow_table()
+            >>> import geopandas as gpd
+            >>> gdf = gpd.GeoDataFrame.from_arrow(tbl)
+
+            >>> # DuckDB
+            >>> import duckdb
+            >>> duckdb.from_arrow(tbl)
+        """
+        import geoarrow.pyarrow as ga  # noqa: F811
+
+        _ensure_overture_loaded()
+
+        if self._df is not None:
+            return self._to_arrow_table_from_df()
+
+        if not self.chain:
+            raise ValueError(
+                "No attributes in the chain. Use wkls.<country> or "
+                "wkls.<country>.<region>, etc."
+            )
+
+        # Build the same query _resolve() would, but against overture
+        # with geometry projection.
+        query, params = self._build_query()
+        params["table"] = "overture"
+        params["columns"] = queries.GEOMETRY_COLUMNS
+
+        df = sedona.sql(query.format(**{k: sqlescape(v) for k, v in params.items()}))
+        tbl = df.to_arrow_table()
+
+        return self._apply_geoarrow_encoding(tbl)
+
+    def _to_arrow_table_from_df(self) -> pa.Table:
+        """IN-list fallback for result-mode Wkls."""
+        import geoarrow.pyarrow as ga  # noqa: F811
+
+        _ensure_overture_loaded()
+
+        meta_tbl = self._df.to_arrow_table()
+        ids = meta_tbl.column("id").to_pylist()
+
+        if ids:
+            id_list = ", ".join(f"'{sqlescape(i)}'" for i in ids)
+            geom_df = sedona.sql(
+                "SELECT id, ST_AsBinary(geometry) AS geometry "
+                f"FROM overture WHERE id IN ({id_list})"
+            )
+            geom_tbl = geom_df.to_arrow_table()
+        else:
+            geom_tbl = pa.table(
+                {
+                    "id": pa.array([], type=meta_tbl.schema.field("id").type),
+                    "geometry": pa.array([], type=pa.binary()),
+                }
+            )
+
+        # Hash-join in Python (small N, trivial).
+        id_to_wkb: dict = dict(
+            zip(
+                geom_tbl.column("id").to_pylist(),
+                geom_tbl.column("geometry").to_pylist(),
+            )
+        )
+        wkb_col = pa.array([id_to_wkb.get(i) for i in ids], type=pa.binary())
+        return self._apply_geoarrow_encoding(
+            meta_tbl.append_column("geometry", ga.with_crs(wkb_col, crs=ga.OGC_CRS84))
+        )
+
+    @staticmethod
+    def _apply_geoarrow_encoding(tbl: pa.Table) -> pa.Table:
+        """Cast the geometry column to GeoArrow WKB extension type.
+
+        Handles the binary_view → binary cast that SedonaDB's
+        ST_AsBinary emits, and wraps with OGC:CRS84 CRS metadata.
+        """
+        import geoarrow.pyarrow as ga  # noqa: F811
+
+        geom_idx = tbl.schema.get_field_index("geometry")
+        wkb_col = tbl.column(geom_idx)
+
+        # ST_AsBinary surfaces as binary_view in pyarrow; ga.with_crs
+        # rejects binary_view, so cast to plain binary first.
+        if wkb_col.type == pa.binary_view():
+            wkb_col = wkb_col.cast(pa.binary())
+
+        geo_col = ga.with_crs(wkb_col, crs=ga.OGC_CRS84)
+        return tbl.set_column(geom_idx, "geometry", geo_col)
 
     def __arrow_c_array__(self, requested_schema=None):
         """Implement the Arrow PyCapsule protocol
@@ -2045,6 +2161,7 @@ def _wkl_from_arrow_slice(table: pa.Table) -> Wkl:
     ``_df`` for downstream ``.wkt()`` / ``.path`` / ``.parent`` calls.
     """
     return Wkl(_df=sedona.create_data_frame(table))
+
 
 
 def _wrapped_subset_method(wkl: Wkl, name: str) -> Callable[..., Wkl]:
