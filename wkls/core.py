@@ -726,12 +726,8 @@ class Wkl:
                     )
         else:
             # Same attr + same parent (or no chain to narrow) — dot
-            # paths can't distinguish these. by_id is the only way.
-            lines.append(
-                f"{n} matches for '{where}'. No dot-access narrower "
-                "distinguishes these — use by_id:"
-            )
-            lines.append("")
+            # paths can't distinguish these.
+            lines.append(f"{n} matches for '{where}'. Narrow with one of:")
 
         # Subtype narrowing — applies whenever candidates span multiple
         # subtype *groups* (two rows both in ``locality`` don't get a

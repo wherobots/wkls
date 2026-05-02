@@ -62,7 +62,7 @@ def test_ambiguity_error_indistinguishable_candidates_uses_by_id():
         msg = str(e)
     else:
         pytest.fail("expected AmbiguousLocationError")
-    assert "No dot-access narrower" in msg
+    assert "Narrow with one of" in msg
     assert "Or pick by id" in msg
     # Two literal by_id calls, one per candidate.
     assert msg.count("wkls.by_id('") == 2
