@@ -81,6 +81,24 @@ Two ways to use the library (equivalent):
     >>> from wkls import Wkl               # explicit instantiation
     >>> wkl = Wkl()
     >>> wkl.us.ca.sanfrancisco.wkt()
+
+Configuration — wkls defaults to the latest Overture Maps release:
+
+    wkls.overture_releases()               # list available versions
+    wkls.overture_version()                # current version string
+    wkls.configure(overture_version='2026-03-18.0')
+    WKLS_OVERTURE_VERSION=2026-03-18.0     # env var, checked at import
+
+Arrow schema — wkl.to_arrow_table() returns these columns:
+
+    id            string     Overture feature ID (UUID)
+    country       string     ISO 3166-1 alpha-2 code
+    region        string     region name (state / province)
+    subtype       string     country | dependency | region | county | locality | localadmin
+    name_primary  string     primary display name
+    name_en       string     English name (may equal name_primary)
+    parent_id     string     parent feature ID
+    geometry      GeoArrow WKB (OGC:CRS84)
 """
 
 from __future__ import annotations
