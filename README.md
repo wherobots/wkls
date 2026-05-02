@@ -187,16 +187,6 @@ Overture retains only the 2 most recent releases on S3, so long-lived
 pins eventually become invalid. Use `overture_releases()` to check
 what's currently available.
 
-### Bracket access (removed)
-
-Bracket access (`wkls.us["ne"]`, `wkls.us.ca["%fran%"]`) was removed in
-v1.2.0 and raises `TypeError` with migration instructions:
-
-- Keyword / numeric collisions → use the English name:
-  `wkls.us.nebraska`, `wkls.austria.burgenland`.
-- Wildcard search → use `.search()`:
-  `wkls.us.ca.search("fran")`.
-
 ### Handoff to your engine (`to_arrow_table`)
 
 When you need more than admin-boundary lookup — filtering, joins,
