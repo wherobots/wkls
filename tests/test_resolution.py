@@ -160,11 +160,11 @@ def test_numeric_region_names():
     Japan uses "Hokkaido Prefecture" as name_en, so the user must type
     the full suffix — ILIKE is not a substring match.
     """
-    df = wkls.austria.burgenland.resolve().to_arrow_table()
+    df = wkls.austria.burgenland._resolve().to_arrow_table()
     assert df.num_rows >= 1
     assert df.column("region")[0].as_py() == "AT-1"
 
-    df2 = wkls.japan.hokkaidoprefecture.resolve().to_arrow_table()
+    df2 = wkls.japan.hokkaidoprefecture._resolve().to_arrow_table()
     assert df2.num_rows >= 1
     assert df2.column("region")[0].as_py() == "JP-01"
 
@@ -186,7 +186,7 @@ def test_india_maharashtra_full_chain():
     strict=True,
 )
 def test_diacritic_english_fallback():
-    df = wkls.ivorycoast.resolve().to_arrow_table()
+    df = wkls.ivorycoast._resolve().to_arrow_table()
     assert df.num_rows >= 1
     assert df.column("country")[0].as_py() == "CI"
 
@@ -199,7 +199,7 @@ def test_diacritic_english_fallback():
     strict=True,
 )
 def test_diacritic_preserved_in_replace():
-    df = wkls.brazil.saopaulo.resolve().to_arrow_table()
+    df = wkls.brazil.saopaulo._resolve().to_arrow_table()
     assert df.num_rows >= 1
     assert df.column("region")[0].as_py() == "BR-SP"
 
@@ -214,16 +214,16 @@ def test_counties_via_name_chain():
     'IN-MAHARASHTRA' (concatenating country_iso + chain[1].upper()),
     which matched zero rows. Must equal the ISO-chain path.
     """
-    from_name = wkls.india.maharashtra.counties().count()
-    from_iso = wkls.IN.MH.counties().count()
+    from_name = len(wkls.india.maharashtra.counties())
+    from_iso = len(wkls.IN.MH.counties())
     assert from_name == from_iso
     assert from_name >= 1
 
 
 def test_cities_via_name_chain():
     """Name-based chain also supports cities() symmetrically with ISO."""
-    from_name = wkls.india.maharashtra.cities().count()
-    from_iso = wkls.IN.MH.cities().count()
+    from_name = len(wkls.india.maharashtra.cities())
+    from_iso = len(wkls.IN.MH.cities())
     assert from_name == from_iso
     assert from_name >= 1
 
@@ -274,17 +274,17 @@ def test_countries_without_region_returns_empty():
     """Countries with no regions return an empty DataFrame, not an error."""
     # Regions scope to a subtree; FK has no region rows, so this is zero
     # — not a special error case.
-    assert wkls.fk.regions().count() == 0
+    assert len(wkls.fk.regions()) == 0
 
 
 # ---------- Chain validation & error handling ----------
 
 
 def test_empty_chain_error():
-    """Empty chain raises on .resolve()."""
+    """Empty chain raises on ._resolve()."""
     wkl = Wkl()
     with pytest.raises(ValueError) as exc_info:
-        wkl.resolve()
+        wkl._resolve()
     assert "No attributes in the chain" in str(exc_info.value)
     assert "wkls.<country>" in str(exc_info.value)
 
@@ -292,7 +292,7 @@ def test_empty_chain_error():
 def test_chain_depth_4_is_parent_narrower():
     """Chain depth 4 narrows by parent_id."""
     # Adams County in PA has a Franklin township — single match.
-    assert wkls.us.pa.adamscounty.franklin.resolve().count() == 1
+    assert wkls.us.pa.adamscounty.franklin._resolve().count() == 1
 
 
 def test_too_many_chained_attributes():
@@ -304,7 +304,7 @@ def test_too_many_chained_attributes():
 def test_nonexistent_location_returns_empty():
     """Unknown identifiers return empty DataFrames, not exceptions."""
     # ZZ is not a valid country code
-    assert wkls.zz.resolve().count() == 0
+    assert wkls.zz._resolve().count() == 0
 
     # ZZ is not a valid US state code
-    assert wkls.us.zz.resolve().count() == 0
+    assert wkls.us.zz._resolve().count() == 0

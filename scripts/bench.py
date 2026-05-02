@@ -69,8 +69,8 @@ def build_cases(sf_id: str) -> list[tuple[str, str]]:
         ("wkls.search('franklin')", "wkls.search('franklin')"),
         ("wkls.us.tn.search('franklin')", "wkls.us.tn.search('franklin')"),
         # Result-mode inspection
-        ("wkls.countries().count()", "wkls.countries().count()"),
-        ("wkls.countries().head(5)", "wkls.countries().head(5)"),
+        ("len(wkls.countries())", "len(wkls.countries())"),
+        ("wkls.countries()[:5]", "wkls.countries()[:5]"),
         ("wkls.countries().to_dicts()", "wkls.countries().to_dicts()"),
         # Repr
         ("repr(wkls.us.ca)  # chain, single row", "repr(wkls.us.ca)"),

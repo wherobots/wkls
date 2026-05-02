@@ -62,7 +62,7 @@ def test_ambiguity_error_indistinguishable_candidates_uses_by_id():
         msg = str(e)
     else:
         pytest.fail("expected AmbiguousLocationError")
-    assert "No dot-access narrower" in msg
+    assert "Narrow with one of" in msg
     assert "Or pick by id" in msg
     # Two literal by_id calls, one per candidate.
     assert msg.count("wkls.by_id('") == 2
@@ -125,7 +125,7 @@ def test_by_id_returns_single_row():
     uid = df.column("id")[0].as_py()
     result = wkls.by_id(uid)
     assert isinstance(result, Wkl)
-    assert result.count() == 1
+    assert len(result) == 1
 
 
 def test_by_id_geometry():
@@ -150,14 +150,14 @@ def test_parent_walks_up_one_level():
     sf = wkls.us.ca.sanfrancisco
     parent = sf.parent
     assert isinstance(parent, Wkl)
-    table = parent.resolve().to_arrow_table()
+    table = parent._resolve().to_arrow_table()
     assert table.column("name_primary")[0].as_py() == "California"
 
 
 def test_parent_parent_chain():
     """.parent.parent walks up two levels."""
     grandparent = wkls.us.ca.sanfrancisco.parent.parent
-    table = grandparent.resolve().to_arrow_table()
+    table = grandparent._resolve().to_arrow_table()
     assert table.column("name_primary")[0].as_py() == "United States"
 
 
@@ -214,7 +214,7 @@ def test_path_on_single_row_search_result_walks_parent_id():
     and the returned path contained only the leaf segment.
     """
     oakland = wkls.us.ca.search("oakland")
-    assert oakland.count() == 1
+    assert len(oakland) == 1
     assert oakland.path == "wkls.us.ca.alamedacounty.oakland"
 
 
@@ -225,7 +225,7 @@ def test_chain_depth_4_resolves_ambiguity():
     """wkls.us.pa.franklin is ambiguous, but parent narrower resolves it."""
     # Adams County Franklin should be unique.
     result = wkls.us.pa.adamscounty.franklin
-    assert result.resolve().count() == 1
+    assert result._resolve().count() == 1
     assert result.wkt().startswith(("POLYGON", "MULTIPOLYGON"))
 
 
@@ -254,7 +254,7 @@ def test_subtype_is_not_a_chain_filter():
     filter the current result by subtype.
     """
     multi = wkls.us.ca.search("san")
-    assert multi.count() > 1
+    assert len(multi) > 1
     # Accessing 'locality' on a result-mode Wkl should go through the
     # DataFrame passthrough (sedona DataFrames don't have a .locality
     # attribute) and raise AttributeError, NOT silently filter.

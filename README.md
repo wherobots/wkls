@@ -19,7 +19,7 @@ wkls.us.ca.sanfrancisco.wkt()
 - `.search("query")` at any chain level — scoped to the current subtree
 - Precise geometries from [Overture Maps Foundation](https://overturemaps.org/) — no bounding boxes, no shapefiles
 - Outputs boundaries in WKT, WKB, or GeoJSON
-- Support for HexWKB and SVG planned
+- Bulk export to `pyarrow.Table` with GeoArrow WKB geometry via `.to_arrow_table()`
 - Zero configuration — no API keys, no downloads, no setup
 - Automatically uses the latest Overture Maps release
 
@@ -103,7 +103,7 @@ wkls.us.ca.search("san francisco")  # anywhere in California
 ```
 
 Results come back as a `Wkl` — the same type every other access returns.
-Call `.count()`, `.head()`, `.to_arrow_table()`, or `.to_dicts()` for
+Use `len()`, `list()`, slicing, or `.to_dicts()` for
 inspection, or `.wkt()` / `.wkb()` / `.geojson()` on a single-row
 result to fetch geometry in one step. `.to_dicts()` is the easiest
 way to iterate rows in plain Python:
@@ -187,18 +187,27 @@ Overture retains only the 2 most recent releases on S3, so long-lived
 pins eventually become invalid. Use `overture_releases()` to check
 what's currently available.
 
-### Bracket access (deprecated)
+### Handoff to your engine (`to_arrow_table`)
 
-Bracket access (`wkls.us["ne"]`, `wkls.us.ca["%fran%"]`) still works but
-emits a `DeprecationWarning` pointing at the modern replacement:
+When you need more than admin-boundary lookup — filtering, joins,
+spatial analysis — escape to a `pyarrow.Table` with full geometry:
 
-- Keyword / numeric collisions → use the English name:
-  `wkls.us.nebraska`, `wkls.austria.burgenland`.
-- Wildcard search → use `.search()`:
-  `wkls.us.ca.search("fran")`.
+```python
+tbl = wkls.us.ca.cities().to_arrow_table()
+```
 
-Bracket access at the module root (`wkls["..."]`) is not supported — real
-Python modules aren't subscriptable. Use dot access or `Wkl()["..."]`.
+The table includes all metadata columns plus a `geometry` column typed
+as GeoArrow WKB with `OGC:CRS84` CRS. Hand it to any Arrow-aware engine:
+
+```python
+ctx.create_data_frame(tbl)
+```
+
+For metadata-only inspection (no geometry fetch), use `.to_dicts()`:
+
+```python
+[r for r in wkls.search("franklin").to_dicts() if r["country"] != "US"]
+```
 
 ## How it works
 

@@ -44,10 +44,21 @@ so 'san francisco' / 'San Francisco' / 'sanfrancisco' all match.
     wkls.us.tn.search('franklin')          # Franklins in Tennessee only
     wkls.search('franklin')                # global — 125+ rows, use sparingly
 
-Every call returns a Wkl — one unified type. Inspect with .count(),
-.head(), .to_arrow_table(), or .to_dicts() for a plain list-of-dicts
-that's easy to iterate / filter in Python. Extract geometry with
-.wkt() / .wkb() / .geojson() when the Wkl holds exactly one row.
+Every call returns a Wkl — one unified type. Inspect like any Python
+sequence:
+
+    len(wkl)                               # row count
+    for row in wkl: row.wkt()              # iterate; each row is a Wkl
+    wkl[0], wkl[-1]                        # positional index
+    wkl[:5]                                # slice; returns a multi-row Wkl
+    '<uuid>' in wkl                        # id-column membership check
+    list(wkl), tuple(wkl)                  # standard collection conversions
+
+Also available: .to_dicts() (metadata-only), .to_arrow_table() (with
+geometry, GeoArrow WKB). For DataFrame ops beyond admin-boundary lookup
+(.filter, .join, .group_by, …), call .to_arrow_table() and use your
+engine of choice (GeoPandas, DuckDB, Polars, etc.). Extract geometry
+with .wkt() / .wkb() / .geojson() when the Wkl holds exactly one row.
 
 Navigation — .parent walks up one level; .path returns the canonical
 dot-chain string that round-trips via eval:
@@ -70,12 +81,29 @@ Two ways to use the library (equivalent):
     >>> from wkls import Wkl               # explicit instantiation
     >>> wkl = Wkl()
     >>> wkl.us.ca.sanfrancisco.wkt()
+
+Configuration — wkls defaults to the latest Overture Maps release:
+
+    wkls.overture_releases()               # list available versions
+    wkls.overture_version()                # current version string
+    wkls.configure(overture_version='2026-03-18.0')
+    WKLS_OVERTURE_VERSION=2026-03-18.0     # env var, checked at import
+
+Arrow schema — wkl.to_arrow_table() returns these columns:
+
+    id            string     Overture feature ID (UUID)
+    country       string     ISO 3166-1 alpha-2 code
+    region        string     region name (state / province)
+    subtype       string     country | dependency | region | county | locality | localadmin
+    name_primary  string     primary display name
+    name_en       string     English name (may equal name_primary)
+    parent_id     string     parent feature ID
+    geometry      GeoArrow WKB (OGC:CRS84)
 """
 
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
-from typing import Any
 
 from .core import Wkl
 
@@ -121,7 +149,7 @@ _REMOVED: dict[str, str] = {
 }
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> Wkl:
     if name.startswith("_"):
         raise AttributeError(f"module 'wkls' has no attribute {name!r}")
     if name in _REMOVED:

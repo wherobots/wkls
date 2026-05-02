@@ -12,8 +12,14 @@ INITIALIZATION = """
 
 # --- Resolution queries (for resolving location chains) ---
 
+# Column sets for the two query modes.
+# _resolve() queries the local `wkls` table (metadata only).
+# to_arrow_table() queries `overture` (metadata + geometry).
+METADATA_COLUMNS = "id, country, region, subtype, name_primary, name_en, parent_id"
+GEOMETRY_COLUMNS = f"{METADATA_COLUMNS}, ST_AsBinary(geometry) AS geometry"
+
 COUNTRY_DEPENDENCY = """
-    SELECT * FROM wkls
+    SELECT {columns} FROM {table}
     WHERE subtype IN ('country', 'dependency')
       AND (
         country ILIKE '{country}'
@@ -23,7 +29,7 @@ COUNTRY_DEPENDENCY = """
 """
 
 REGION = """
-    SELECT * FROM wkls
+    SELECT {columns} FROM {table}
     WHERE country ILIKE '{country}'
       AND subtype = 'region'
       AND (
@@ -76,7 +82,7 @@ ROW_BY_ID = """
 # Matches by parent_id AND location name. parent_id self-references
 # another row's ``id`` within the bundled metadata.
 CHILDREN_BY_PARENT = """
-    SELECT * FROM wkls
+    SELECT {columns} FROM {table}
     WHERE parent_id = '{parent_id}'
       AND (
         REPLACE(name_primary, ' ', '') ILIKE REPLACE('{name}', ' ', '')
@@ -85,7 +91,7 @@ CHILDREN_BY_PARENT = """
 """
 
 CITY = """
-    SELECT * FROM wkls
+    SELECT {columns} FROM {table}
     WHERE country ILIKE '{country}'
       AND region ILIKE '{region}'
       AND subtype IN ('county', 'locality', 'localadmin')
@@ -97,7 +103,7 @@ CITY = """
 """
 
 CITY_NO_REGION = """
-    SELECT * FROM wkls
+    SELECT {columns} FROM {table}
     WHERE country ILIKE '{country}'
       AND subtype IN ('county', 'locality', 'localadmin')
       AND (
