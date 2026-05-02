@@ -1,7 +1,7 @@
 """Tests for geometry output formats and Arrow interop.
 
-Covers ``.wkt()``, ``.wkb()``, ``.geojson()``, the unimplemented
-``.hexwkb()`` and ``.svg()`` stubs, Arrow C data protocol, and the
+Covers ``.wkt()``, ``.wkb()``, ``.geojson()``, removal of
+``.hexwkb()`` and ``.svg()``, Arrow C data protocol, and the
 failure path when geometry methods are called on empty resolve results.
 """
 
@@ -43,14 +43,14 @@ def test_geojson(sf):
     assert parsed["type"] == "MultiPolygon"
 
 
-def test_hexwkb_not_implemented(sf):
-    with pytest.raises(NotImplementedError):
-        sf.hexwkb()
+def test_hexwkb_removed():
+    """hexwkb() no longer exists on Wkl — removed in v1.2.0."""
+    assert not hasattr(wkls.Wkl, "hexwkb")
 
 
-def test_svg_not_implemented(sf):
-    with pytest.raises(NotImplementedError):
-        sf.svg()
+def test_svg_removed():
+    """svg() no longer exists on Wkl — removed in v1.2.0."""
+    assert not hasattr(wkls.Wkl, "svg")
 
 
 def test_arrow_interop(sf):

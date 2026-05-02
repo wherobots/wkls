@@ -36,10 +36,10 @@ urllib.request.urlopen = lambda *a, **kw: (_ for _ in ()).throw(
 
 import wkls  # must not raise
 
-assert wkls.countries().count() > 0, "countries() should work offline"
-assert wkls.us.regions().count() > 0, "regions() should work offline"
+assert len(wkls.countries()) > 0, "countries() should work offline"
+assert len(wkls.us.regions()) > 0, "regions() should work offline"
 assert wkls.us.ca.sanfrancisco._resolve().count() == 1, "chain resolution should work offline"
-assert wkls.us.ca.search('oakland').count() >= 1, "search should work offline"
+assert len(wkls.us.ca.search('oakland')) >= 1, "search should work offline"
 print("OK")
 """
     result = subprocess.run(

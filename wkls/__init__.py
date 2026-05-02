@@ -54,11 +54,11 @@ sequence:
     '<uuid>' in wkl                        # id-column membership check
     list(wkl), tuple(wkl)                  # standard collection conversions
 
-Also available: .count(), .head(n), .limit(n), .to_dicts(),
-.to_arrow_table(), .show(). For DataFrame ops beyond admin-boundary
-lookup (.filter, .join, .group_by, …), call .resolve() to drop to the
-underlying SedonaDB DataFrame. Extract geometry with .wkt() / .wkb() /
-.geojson() when the Wkl holds exactly one row.
+Also available: .to_dicts() (metadata-only), .to_arrow_table() (with
+geometry, GeoArrow WKB). For DataFrame ops beyond admin-boundary lookup
+(.filter, .join, .group_by, …), call .to_arrow_table() and use your
+engine of choice (GeoPandas, DuckDB, Polars, etc.). Extract geometry
+with .wkt() / .wkb() / .geojson() when the Wkl holds exactly one row.
 
 Navigation — .parent walks up one level; .path returns the canonical
 dot-chain string that round-trips via eval:
@@ -86,7 +86,6 @@ Two ways to use the library (equivalent):
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
-from typing import Any
 
 from .core import Wkl
 
@@ -132,7 +131,7 @@ _REMOVED: dict[str, str] = {
 }
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> Wkl:
     if name.startswith("_"):
         raise AttributeError(f"module 'wkls' has no attribute {name!r}")
     if name in _REMOVED:

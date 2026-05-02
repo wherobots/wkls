@@ -34,10 +34,11 @@ def test_len_on_chain_mode():
     assert len(wkls.us.ca.counties()) >= 1
 
 
-def test_len_matches_count():
-    """len(wkl) and wkl.count() must agree."""
+def test_len_returns_int():
+    """len(wkl) returns a positive integer for a valid result."""
     counties = wkls.us.ca.counties()
-    assert len(counties) == counties.count()
+    assert isinstance(len(counties), int)
+    assert len(counties) > 0
 
 
 def test_len_on_empty_result():
@@ -226,70 +227,92 @@ def test_slice_then_list():
     assert all(isinstance(x, Wkl) for x in lst)
 
 
-# ---------- head / limit return Wkl (was: sedona DataFrame) ----------
+# ---------- slice returns Wkl (was: .head/.limit passthrough) ----------
 
 
-def test_head_returns_wkl():
-    """Behavior change from v1.2: .head(n) wraps its return in a Wkl."""
-    result = wkls.us.ca.counties().head(3)
+def test_slice_returns_wkl():
+    """wkl[:n] returns a Wkl with n rows."""
+    result = wkls.us.ca.counties()[:3]
     assert isinstance(result, Wkl)
     assert len(result) == 3
 
 
-def test_limit_returns_wkl():
-    result = wkls.us.ca.counties().limit(3)
-    assert isinstance(result, Wkl)
-    assert len(result) == 3
-
-
-def test_head_to_dicts_chain():
-    """Copilot-review bug: .head(3).to_dicts() end-to-end.
-
-    Before v1.3 this failed because .head returned a sedona DataFrame
-    which has no .to_dicts method.
-    """
-    rows = wkls.us.ca.counties().head(3).to_dicts()
+def test_slice_to_dicts_chain():
+    """wkl[:3].to_dicts() end-to-end."""
+    rows = wkls.us.ca.counties()[:3].to_dicts()
     assert isinstance(rows, list)
     assert len(rows) == 3
     assert all(isinstance(r, dict) for r in rows)
 
 
-# ---------- narrowed __getattr__ passthrough ----------
+# ---------- __getattr__ redirects ----------
 
 
-def test_filter_raises_attribute_error():
-    """`.filter()` used to silently pass through to sedona; now it raises."""
-    with pytest.raises(AttributeError, match=r"\.to_arrow_table\(\)"):
-        wkls.us.ca.counties().filter(None)
+def test_filter_redirects_to_search_and_arrow():
+    """filter() suggests .search() first, then .to_arrow_table()."""
+    with pytest.raises(AttributeError, match="search"):
+        wkls.us.ca.cities().filter  # noqa: B018
 
 
-def test_select_raises_attribute_error():
-    with pytest.raises(AttributeError, match=r"\.to_arrow_table\(\)"):
-        wkls.us.ca.counties().select("id")
+def test_select_redirects_to_arrow_table():
+    with pytest.raises(AttributeError, match="to_arrow_table"):
+        wkls.us.ca.cities().select  # noqa: B018
 
 
-def test_group_by_raises_attribute_error():
-    with pytest.raises(AttributeError, match=r"\.to_arrow_table\(\)"):
-        wkls.us.ca.counties().group_by("subtype")
+def test_group_by_redirects_to_arrow_table():
+    with pytest.raises(AttributeError, match="to_arrow_table"):
+        wkls.us.ca.cities().group_by  # noqa: B018
 
 
-def test_arbitrary_sedona_method_raises():
-    with pytest.raises(AttributeError, match=r"\.to_arrow_table\(\)"):
-        wkls.us.ca.counties().nonexistent_method()
+def test_count_redirects_to_len():
+    """count() suggests len(wkl)."""
+    with pytest.raises(AttributeError, match="len"):
+        wkls.us.ca.cities().count  # noqa: B018
 
 
-# ---------- allowlisted passthroughs unchanged ----------
+def test_head_redirects_to_slice():
+    """head() suggests wkl[:n]."""
+    with pytest.raises(AttributeError, match=r"\[:n\]"):
+        wkls.us.ca.cities().head  # noqa: B018
 
 
-def test_count_unchanged():
-    assert isinstance(wkls.us.ca.counties().count(), int)
+def test_show_redirects_to_slice():
+    """show() suggests wkl[:n]."""
+    with pytest.raises(AttributeError, match=r"\[:n\]"):
+        wkls.us.ca.cities().show  # noqa: B018
 
 
-def test_show_unchanged(capsys):
-    result = wkls.us.ca.counties().head(1).show()
-    # show() returns None and prints to stdout. We don't assert on the
-    # exact output to avoid coupling to sedona's formatting.
-    assert result is None
+def test_resolve_redirects_to_arrow_table():
+    """resolve() suggests .to_arrow_table() (renamed)."""
+    with pytest.raises(AttributeError, match="to_arrow_table"):
+        wkls.us.ca.cities().resolve  # noqa: B018
+
+
+def test_collect_redirects_to_list():
+    """collect() suggests list(wkl)."""
+    with pytest.raises(AttributeError, match="list"):
+        wkls.us.ca.cities().collect  # noqa: B018
+
+
+def test_to_pandas_redirects_to_arrow_table():
+    """to_pandas() suggests .to_arrow_table().to_pandas()."""
+    with pytest.raises(AttributeError, match="to_arrow_table"):
+        wkls.us.ca.cities().to_pandas  # noqa: B018
+
+
+def test_unknown_attr_generic_fallback():
+    """Unknown non-location attr gets generic .to_arrow_table() redirect."""
+    with pytest.raises(AttributeError, match="to_arrow_table"):
+        wkls.us.ca.cities().foobar_nonexistent  # noqa: B018
+
+
+def test_chain_drill_still_works():
+    """Valid location names still chain-drill normally."""
+    result = wkls.us.ca  # should not raise
+    assert result is not None
+
+
+# ---------- real methods still work ----------
 
 
 def test_to_arrow_table_unchanged():

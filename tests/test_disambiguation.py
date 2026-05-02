@@ -125,7 +125,7 @@ def test_by_id_returns_single_row():
     uid = df.column("id")[0].as_py()
     result = wkls.by_id(uid)
     assert isinstance(result, Wkl)
-    assert result.count() == 1
+    assert len(result) == 1
 
 
 def test_by_id_geometry():
@@ -214,7 +214,7 @@ def test_path_on_single_row_search_result_walks_parent_id():
     and the returned path contained only the leaf segment.
     """
     oakland = wkls.us.ca.search("oakland")
-    assert oakland.count() == 1
+    assert len(oakland) == 1
     assert oakland.path == "wkls.us.ca.alamedacounty.oakland"
 
 
@@ -254,7 +254,7 @@ def test_subtype_is_not_a_chain_filter():
     filter the current result by subtype.
     """
     multi = wkls.us.ca.search("san")
-    assert multi.count() > 1
+    assert len(multi) > 1
     # Accessing 'locality' on a result-mode Wkl should go through the
     # DataFrame passthrough (sedona DataFrames don't have a .locality
     # attribute) and raise AttributeError, NOT silently filter.

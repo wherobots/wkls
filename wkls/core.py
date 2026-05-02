@@ -335,11 +335,52 @@ _DIR_REGION_METHODS = frozenset(
 _DIR_CITY_METHODS = frozenset({"geojson", "parent", "path", "wkb", "wkt"})
 
 # Result-mode: DataFrame passthroughs that make sense to surface on a
-# multi-row Wkl. Keep this to the common inspection verbs — sedona's
-# DataFrame has a wider surface but listing everything would be noise.
-_DIR_DATAFRAME_METHODS = frozenset(
-    {"count", "head", "limit", "show", "to_arrow_table", "to_dicts"}
-)
+# Redirect tables — priority: S1 > S2 > S3.
+# Checked in order by __getattr__; first match wins.
+_S1_REDIRECTS: dict[str, str] = {
+    "filter": (
+        "To find locations by name, use 'wkl.search(\"query\")'. "
+        "For arbitrary column filters, use 'wkl.to_arrow_table()' "
+        "and your engine of choice."
+    ),
+    "where": (
+        "To find locations by name, use 'wkl.search(\"query\")'. "
+        "For arbitrary column filters, use 'wkl.to_arrow_table()' "
+        "and your engine of choice."
+    ),
+    "query": (
+        "To find locations by name, use 'wkl.search(\"query\")'. "
+        "For arbitrary column filters, use 'wkl.to_arrow_table()' "
+        "and your engine of choice."
+    ),
+    "resolve": "Renamed in v1.2.0. Use 'wkl.to_arrow_table()'.",
+}
+
+_S2_REDIRECTS: dict[str, str] = {
+    "count": "Use 'len(wkl)'.",
+    "head": "Use 'wkl[:n]'.",
+    "limit": "Use 'wkl[:n]'.",
+    "take": "Use 'wkl[:n]'.",
+    "show": "Use 'wkl[:n]'.",
+    "collect": "Use 'list(wkl)'.",
+    "to_pylist": "Use 'list(wkl)'.",
+}
+
+_S3_REDIRECTS: dict[str, str] = {
+    "select": "Use 'wkl.to_arrow_table()' and your engine of choice.",
+    "with_columns": "Use 'wkl.to_arrow_table()' and your engine of choice.",
+    "join": "Use 'wkl.to_arrow_table()' and your engine of choice.",
+    "group_by": "Use 'wkl.to_arrow_table()' and your engine of choice.",
+    "agg": "Use 'wkl.to_arrow_table()' and your engine of choice.",
+    "sort": "Use 'wkl.to_arrow_table()' and your engine of choice.",
+    "order_by": "Use 'wkl.to_arrow_table()' and your engine of choice.",
+    "to_pandas": "Use 'wkl.to_arrow_table().to_pandas()'.",
+    "to_geopandas": "Use 'gpd.GeoDataFrame.from_arrow(wkl.to_arrow_table())'.",
+    "to_polars": "Use 'pl.from_arrow(wkl.to_arrow_table())'.",
+    "to_arrow": "Use 'wkl.to_arrow_table()' (the public name follows SedonaDB/DuckDB convention).",
+}
+
+_GENERIC_FALLBACK = "Use 'wkl.to_arrow_table()' and your engine of choice."
 
 # Listing methods that narrow a multi-row result to a single subtype
 # (or inspect what subtypes are present). Surfaced via ``dir()`` on a
@@ -515,7 +556,7 @@ class Wkl:
         self._country_iso: str = ""
         # Cache of the resolved Arrow table for Surface 2 dunders. Populated
         # lazily on first ``_materialize()`` call; safe because ``Wkl`` is
-        # immutable (no re-resolve path in v1.3).
+        # immutable (no re-resolve path in v1.2).
         self._arrow_table: pa.Table | None = None
         if not self.chain:
             return
@@ -975,25 +1016,23 @@ class Wkl:
         ).to_view("overture", overwrite=True)
         _overture_view_loaded = True
 
-    def __getattr__(self, attr: str) -> Any:
-        """Handle attribute access.
+    def __getattr__(self, attr: str) -> Wkl:
+        """Handle attribute access — chain drill or redirect.
 
-        Three behaviors, picked by mode:
+        Two behaviors:
 
-        - **Root / chain-mode**: drill one level deeper into the admin
-          hierarchy (``wkls.us.ca.sanfrancisco``). Raises ``ValueError``
-          past chain depth 3.
-        - **Result-mode** (empty chain, cached DataFrame — e.g. after
-          ``.search(...)`` or ``.countries()``): forward to the cached
-          DataFrame so callers can do ``.count()``, ``.to_arrow_table()``,
-          ``.head(n)``, etc. Location-name drill doesn't apply here —
-          the result set has no tree position.
+        - **Chain drill** (valid location identifier): drill one level
+          deeper into the admin hierarchy
+          (``wkls.us.ca.sanfrancisco``).
+        - **Redirect**: any attribute that isn't a valid location
+          identifier raises ``AttributeError`` with a priority-ordered
+          suggestion (Surface 1 → Surface 2 → Surface 3).
 
         Raises:
-            AttributeError: For private/dunder attributes, or in
-                result-mode when the attribute isn't found on the
-                cached DataFrame.
-            ValueError: If chain depth would exceed 3.
+            AttributeError: For private/dunder attributes, root-only
+                methods, redirect-table matches, or any unknown
+                attribute.
+            ValueError: If chain depth would exceed 4.
         """
         # Don't intercept private/dunder attributes - raise AttributeError
         if attr.startswith("_"):
@@ -1009,38 +1048,42 @@ class Wkl:
                 f"'{self.__class__.__name__}' object has no attribute '{attr}'"
             )
 
-        # Result-mode: allow-listed DataFrame verbs only. Head/limit wrap
-        # their return in a Wkl so chaining continues (fixes the
-        # .head(3).to_dicts() usability trap); the rest pass through
-        # unchanged. Anything outside the allowlist raises with a
-        # pointer at .resolve() — the documented Surface 3 escape hatch.
-        if not self.chain and self._df is not None:
-            if attr in _DIR_DATAFRAME_METHODS:
-                if attr in ("head", "limit"):
-                    return _wrapped_subset_method(self, attr)
-                return getattr(self._df, attr)
-            raise AttributeError(_passthrough_error(attr))
+        # Chain drill: only attempt for names that could be location
+        # identifiers (alphanumeric). Result-mode Wkls (no chain, have
+        # _df) skip drill — they have no tree position.
+        if self.chain or self._df is None:
+            if attr.isalnum():
+                new_chain = self.chain + [attr.lower()]
+                if len(new_chain) > 4:
+                    raise ValueError(
+                        "Chain too deep (max = 4). Use .by_id('<uuid>') for specific rows."
+                    )
 
-        new_chain = self.chain + [attr.lower()]
-        if len(new_chain) > 4:
-            raise ValueError(
-                "Chain too deep (max = 4). Use .by_id('<uuid>') for specific rows."
-            )
+                # Depth 4: parent-narrower. The preceding 3-level chain must
+                # resolve to exactly one row.
+                if len(new_chain) == 4:
+                    df = self._df if self._df is not None else self._resolve()
+                    count = df.count()
+                    if count != 1:
+                        raise ValueError(
+                            "4-level chain requires the preceding chain to resolve to a "
+                            f"single row; '{'.'.join(self.chain)}' has {count} rows."
+                        )
+                    parent_row = df.head(1).to_arrow_table()
+                    parent_id = parent_row.column("id")[0].as_py()
+                    return Wkl(new_chain, _parent_id=parent_id)
+                return Wkl(new_chain)
 
-        # Depth 4: parent-narrower. The preceding 3-level chain must resolve
-        # to exactly one row; we use that row's id to filter children.
-        if len(new_chain) == 4:
-            df = self._df if self._df is not None else self._resolve()
-            count = df.count()
-            if count != 1:
-                raise ValueError(
-                    "4-level chain requires the preceding chain to resolve to a "
-                    f"single row; '{'.'.join(self.chain)}' has {count} rows."
+        # Not a location name → redirect with priority.
+        for table in (_S1_REDIRECTS, _S2_REDIRECTS, _S3_REDIRECTS):
+            if attr in table:
+                raise AttributeError(
+                    f"'{attr}' is not part of the Wkl API. {table[attr]}"
                 )
-            parent_row = df.head(1).to_arrow_table()
-            parent_id = parent_row.column("id")[0].as_py()
-            return Wkl(new_chain, _parent_id=parent_id)
-        return Wkl(new_chain)
+
+        raise AttributeError(
+            f"'{attr}' is not part of the Wkl API. {_GENERIC_FALLBACK}"
+        )
 
     def __dir__(self) -> list[str]:
         """Return contextually valid attributes for this ``Wkl``.
@@ -1087,7 +1130,7 @@ class Wkl:
         """
         assert self._df is not None
         row_count = self._df.count()
-        base = set(_DIR_DATAFRAME_METHODS)
+        base = {"to_arrow_table", "to_dicts"}
         if row_count == 0:
             return base
         if row_count == 1:
@@ -1135,7 +1178,7 @@ class Wkl:
     # Wkl implements collections.abc.Sequence on the rows of the resolved
     # result set. Backed by a cached pyarrow Table (_arrow_table) so that
     # len/iter/getitem avoid a sedona round-trip per call. The old bracket
-    # access shim (pre-v1.3 DeprecationWarning) is replaced by the new
+    # access shim (pre-v1.2 DeprecationWarning) is replaced by the new
     # protocol — string subscripts now raise TypeError with a pointer at
     # dot access / .search() / .resolve().
 
@@ -1692,8 +1735,6 @@ class Wkl:
             >>> import duckdb
             >>> duckdb.from_arrow(tbl)
         """
-        import geoarrow.pyarrow as ga  # noqa: F811
-
         _ensure_overture_loaded()
 
         if self._df is not None:
@@ -2161,31 +2202,3 @@ def _wkl_from_arrow_slice(table: pa.Table) -> Wkl:
     ``_df`` for downstream ``.wkt()`` / ``.path`` / ``.parent`` calls.
     """
     return Wkl(_df=sedona.create_data_frame(table))
-
-
-
-def _wrapped_subset_method(wkl: Wkl, name: str) -> Callable[..., Wkl]:
-    """Return a wrapper around ``df.head`` / ``df.limit`` that returns a ``Wkl``.
-
-    Fixes the ``.head(n).to_dicts()`` usability trap: ``.to_dicts()`` is a
-    ``Wkl`` method, so the inner subset call must return a ``Wkl`` for
-    the chain to type-check end-to-end.
-    """
-    sedona_method = getattr(wkl._df, name)
-
-    def _call(*args: Any, **kwargs: Any) -> Wkl:
-        sub_df = sedona_method(*args, **kwargs)
-        return Wkl(_df=sub_df)
-
-    _call.__name__ = name
-    _call.__qualname__ = f"Wkl.{name}"
-    return _call
-
-
-def _passthrough_error(attr: str) -> str:
-    """Format the AttributeError message for the narrowed __getattr__ passthrough."""
-    return (
-        f"'Wkl' object has no attribute {attr!r}. "
-        f"For DataFrame operations beyond admin-boundary lookup, call "
-        f".to_arrow_table() to get a PyArrow Table."
-    )

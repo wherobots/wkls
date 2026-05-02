@@ -130,7 +130,7 @@ def test_dir_result_mode_multi_row_exposes_inspection_and_subtype_narrowers():
     subtype attribute.
     """
     entries = set(dir(wkls.us.ca.search("san francisco")))
-    assert {"count", "head", "to_arrow_table", "to_dicts"}.issubset(entries)
+    assert {"to_arrow_table", "to_dicts"}.issubset(entries)
     assert entries.isdisjoint({"wkt", "wkb", "geojson"})  # geometry would raise
     # Listing narrowers ARE advertised — they're the discovery path for
     # agents hitting AmbiguousLocationError in result-mode.
@@ -161,17 +161,13 @@ def test_dir_result_mode_single_row_exposes_geometry_and_nav():
     entries = set(dir(wkls.us.ca.search("oakland")))
     assert {"wkt", "wkb", "geojson"}.issubset(entries)
     assert {"path", "parent"}.issubset(entries)
-    assert {"count", "head", "to_arrow_table"}.issubset(entries)
+    assert {"to_arrow_table", "to_dicts"}.issubset(entries)
 
 
 def test_dir_result_mode_empty_result():
     """dir() on an empty result exposes only DataFrame inspection verbs."""
     entries = set(dir(wkls.us.ca.search("zzzzznope")))
     assert entries == {
-        "count",
-        "head",
-        "limit",
-        "show",
         "to_arrow_table",
         "to_dicts",
     }
@@ -198,8 +194,8 @@ def test_dir_cached_no_query_on_repeat(capsys):
 
 def test_search_root_returns_mixed_subtypes():
     """wkls.search() at root scans every subtype, not just countries."""
-    df = wkls.search("san francisco").to_arrow_table()
-    subtypes = {df.column("subtype")[i].as_py() for i in range(df.num_rows)}
+    rows = wkls.search("san francisco").to_dicts()
+    subtypes = {r["subtype"] for r in rows}
     assert subtypes & {"locality", "localadmin", "county"}, (
         f"Expected city-like subtypes, got {subtypes}"
     )
@@ -207,29 +203,22 @@ def test_search_root_returns_mixed_subtypes():
 
 def test_search_finds_city_from_root():
     """A root-level search for a city name returns the actual city."""
-    df = wkls.search("san francisco").to_arrow_table()
-    matches = [
-        (df.column("country")[i].as_py(), df.column("name_primary")[i].as_py())
-        for i in range(df.num_rows)
-    ]
+    rows = wkls.search("san francisco").to_dicts()
+    matches = [(r["country"], r["name_primary"]) for r in rows]
     assert ("US", "San Francisco") in matches
 
 
 def test_search_country_scope_expands():
     """search() under a country finds cities, not just regions."""
-    df = wkls.us.search("los angeles").to_arrow_table()
-    subtypes = {df.column("subtype")[i].as_py() for i in range(df.num_rows)}
+    rows = wkls.us.search("los angeles").to_dicts()
+    subtypes = {r["subtype"] for r in rows}
     assert subtypes & {"locality", "county"}
 
 
 def test_search_country_finds_regions_too():
     """Country-level search still returns region matches alongside cities."""
-    df = wkls.us.search("new").to_arrow_table()
-    names_by_subtype = {
-        (df.column("subtype")[i].as_py(), df.column("name_primary")[i].as_py())
-        for i in range(df.num_rows)
-    }
-    region_names = {n for st, n in names_by_subtype if st == "region"}
+    rows = wkls.us.search("new").to_dicts()
+    region_names = {r["name_primary"] for r in rows if r["subtype"] == "region"}
     assert {"New Hampshire", "New Jersey", "New Mexico", "New York"}.issubset(
         region_names
     )
@@ -238,9 +227,9 @@ def test_search_country_finds_regions_too():
 def test_search_region_returns_cities():
     """search() at region level returns matching cities/counties."""
     df = wkls.us.ca.search("san fran")
-    assert df.count() >= 1
-    table = df.to_arrow_table()
-    names = [table.column("name_primary")[i].as_py() for i in range(table.num_rows)]
+    assert len(df) >= 1
+    rows = df.to_dicts()
+    names = [r["name_primary"] for r in rows]
     assert any("San Francisco" in n for n in names)
 
 
@@ -264,8 +253,8 @@ def test_search_normalizes_query_to_dot_access_form():
     (lowercased + non-alphanumerics stripped). Regression: prior to
     normalization, the spaceless form returned an empty DataFrame.
     """
-    spaceless = wkls.us.ca.search("sanfrancisco").count()
-    spaced = wkls.us.ca.search("san francisco").count()
+    spaceless = len(wkls.us.ca.search("sanfrancisco"))
+    spaced = len(wkls.us.ca.search("san francisco"))
     assert spaceless == spaced
     assert spaceless >= 1  # at least the SF locality
 
@@ -280,15 +269,15 @@ def test_search_chains_narrow_within_prior_result():
     the US/CA scope.
     """
     narrowed = wkls.us.ca.search("san").search("san francisco")
-    tbl = narrowed.to_arrow_table()
-    countries = {tbl.column("country")[i].as_py() for i in range(tbl.num_rows)}
-    regions = {tbl.column("region")[i].as_py() for i in range(tbl.num_rows)}
+    rows = narrowed.to_dicts()
+    countries = {r["country"] for r in rows}
+    regions = {r["region"] for r in rows}
     # Must be a subset of the prior scope (US/CA).
     assert countries == {"US"}
     assert regions == {"US-CA"}
     # Must match the single-call equivalent (same final scope, same query).
-    single = wkls.us.ca.search("san francisco").count()
-    assert narrowed.count() == single
+    single = len(wkls.us.ca.search("san francisco"))
+    assert len(narrowed) == single
 
 
 def test_search_chains_on_root_result_still_narrows():
@@ -297,14 +286,10 @@ def test_search_chains_on_root_result_still_narrows():
     second = first.search("san")
     # Every row in `second` must also be in `first` — narrowing, not
     # re-scanning.
-    first_ids = {
-        first.to_arrow_table().column("id")[i].as_py() for i in range(first.count())
-    }
-    second_ids = {
-        second.to_arrow_table().column("id")[i].as_py() for i in range(second.count())
-    }
+    first_ids = {r["id"] for r in first.to_dicts()}
+    second_ids = {r["id"] for r in second.to_dicts()}
     assert second_ids.issubset(first_ids)
-    assert second.count() < first.count()
+    assert len(second) < len(first)
 
 
 # ---------- Listing methods narrow on result-mode ----------
@@ -317,55 +302,47 @@ def test_counties_narrows_on_result_mode():
     of thousands of counties unrelated to the prior search.
     """
     prior = wkls.us.search("san")
-    assert prior.count() > 1
+    assert len(prior) > 1
     narrowed = prior.counties()
-    prior_ids = {
-        prior.to_arrow_table().column("id")[i].as_py() for i in range(prior.count())
-    }
-    tbl = narrowed.to_arrow_table()
-    for i in range(tbl.num_rows):
-        assert tbl.column("subtype")[i].as_py() == "county"
-        assert tbl.column("id")[i].as_py() in prior_ids
+    prior_ids = {r["id"] for r in prior.to_dicts()}
+    narrowed_rows = narrowed.to_dicts()
+    for r in narrowed_rows:
+        assert r["subtype"] == "county"
+        assert r["id"] in prior_ids
 
 
 def test_cities_narrows_on_result_mode():
     """cities() on a result-mode Wkl filters to locality/localadmin rows."""
     prior = wkls.us.search("san")
     narrowed = prior.cities()
-    subtypes = {
-        narrowed.to_arrow_table().column("subtype")[i].as_py()
-        for i in range(narrowed.count())
-    }
+    subtypes = {r["subtype"] for r in narrowed.to_dicts()}
     assert subtypes.issubset({"locality", "localadmin"})
 
 
 def test_countries_narrows_on_result_mode():
     """countries() on a result-mode Wkl filters to country rows in the prior result."""
     # A name that doesn't match any country — should narrow to empty.
-    assert wkls.search("franklin").countries().count() == 0
+    assert len(wkls.search("franklin").countries()) == 0
     # A name that does — should include at least that country.
     united = wkls.search("united").countries()
-    tbl = united.to_arrow_table()
-    subtypes = {tbl.column("subtype")[i].as_py() for i in range(tbl.num_rows)}
+    rows = united.to_dicts()
+    subtypes = {r["subtype"] for r in rows}
     assert subtypes == {"country"}
-    assert united.count() >= 1
+    assert len(united) >= 1
 
 
 def test_dependencies_narrows_on_result_mode():
     """dependencies() on a result-mode Wkl filters to dependency rows."""
     result = wkls.search("united").dependencies()
-    tbl = result.to_arrow_table()
-    for i in range(tbl.num_rows):
-        assert tbl.column("subtype")[i].as_py() == "dependency"
+    rows = result.to_dicts()
+    for r in rows:
+        assert r["subtype"] == "dependency"
 
 
 def test_subtypes_narrows_on_result_mode():
     """subtypes() on a result-mode Wkl lists distinct subtypes in the prior rows."""
     result = wkls.us.search("san").subtypes()
-    vals = {
-        result.to_arrow_table().column("subtype")[i].as_py()
-        for i in range(result.count())
-    }
+    vals = {r["subtype"] for r in result.to_dicts()}
     # Must be a subset of real subtypes (no spurious global ones).
     assert vals <= {
         "country",
@@ -417,53 +394,53 @@ def test_to_dicts_in_result_mode_dir():
 
 def test_regions_at_root_returns_all():
     """wkls.regions() at root returns every region worldwide."""
-    assert wkls.regions().count() > 3000  # ~3,900 in practice
+    assert len(wkls.regions()) > 3000  # ~3,900 in practice
 
 
 def test_regions_scoped_to_country():
     """wkls.us.regions() returns regions scoped to that country."""
-    assert wkls.us.regions().count() == 51  # 50 states + DC
+    assert len(wkls.us.regions()) == 51  # 50 states + DC
 
 
 def test_india_regions_count():
     """Canonical dataset sanity check."""
-    assert wkls.IN.regions().count() == 37
+    assert len(wkls.IN.regions()) == 37
 
 
 def test_counties_at_country_level():
     """wkls.us.counties() returns counties in the US."""
-    assert wkls.us.counties().count() > 3000
+    assert len(wkls.us.counties()) > 3000
 
 
 def test_cities_at_country_level():
     """wkls.us.cities() returns cities in the US."""
-    assert wkls.us.cities().count() > 10000
+    assert len(wkls.us.cities()) > 10000
 
 
 def test_counties_at_region_level():
     """wkls.us.ca.counties() returns CA counties."""
-    assert wkls.us.ca.counties().count() == 58  # California has 58 counties
+    assert len(wkls.us.ca.counties()) == 58  # California has 58 counties
 
 
 def test_counties_at_root_returns_all():
     """wkls.counties() at root lists every county worldwide."""
-    assert wkls.counties().count() > 10000
+    assert len(wkls.counties()) > 10000
 
 
 def test_cities_at_root_returns_all():
     """wkls.cities() at root lists every city worldwide."""
-    assert wkls.cities().count() > 100000
+    assert len(wkls.cities()) > 100000
 
 
 def test_no_region_country_counties_and_cities():
     """Depth-1 list methods on no-region countries (FK) still work."""
-    assert wkls.fk.counties().count() >= 0
-    assert wkls.fk.cities().count() >= 1
+    assert len(wkls.fk.counties()) >= 0
+    assert len(wkls.fk.cities()) >= 1
 
 
 def test_fk_cities_count():
     """Canonical dataset sanity check."""
-    assert wkls.fk.cities().count() == 25
+    assert len(wkls.fk.cities()) == 25
 
 
 # ---------- List-method depth guards ----------
@@ -471,14 +448,14 @@ def test_fk_cities_count():
 
 def test_regions_at_region_level_returns_self():
     """regions() at region level returns the region itself — only region in scope."""
-    df = wkls.us.ca.regions().to_arrow_table()
-    assert df.num_rows == 1
-    assert df.column("region")[0].as_py() == "US-CA"
+    rows = wkls.us.ca.regions().to_dicts()
+    assert len(rows) == 1
+    assert rows[0]["region"] == "US-CA"
 
 
 def test_regions_past_region_level_returns_empty():
     """regions() past region level cascades via parent_id; a locality has no sub-regions."""
-    assert wkls.us.ca.sanfrancisco.regions().count() == 0
+    assert len(wkls.us.ca.sanfrancisco.regions()) == 0
 
 
 def test_counties_past_region_level_self_inclusive():
@@ -488,16 +465,16 @@ def test_counties_past_region_level_self_inclusive():
     city-county), so .counties() on it returns [SF].
     """
     result = wkls.us.ca.sanfrancisco.counties()
-    assert result.count() == 1
-    assert result.to_arrow_table().column("name_primary")[0].as_py() == "San Francisco"
+    assert len(result) == 1
+    assert result.to_dicts()[0]["name_primary"] == "San Francisco"
 
 
 def test_cities_at_county_level_returns_children():
     """cities() on a county returns its direct locality/localadmin children via parent_id."""
     cities = wkls.us.ca.sandiegocounty.cities()
-    assert cities.count() >= 15  # San Diego County has ~19 localities
-    table = cities.to_arrow_table()
-    names = {table.column("name_primary")[i].as_py() for i in range(table.num_rows)}
+    assert len(cities) >= 15  # San Diego County has ~19 localities
+    rows = cities.to_dicts()
+    names = {r["name_primary"] for r in rows}
     assert {"San Diego", "Chula Vista", "Oceanside"}.issubset(names)
 
 
@@ -512,18 +489,18 @@ def test_cities_past_region_level_on_ambiguous_raises():
 
 def test_countries_at_root():
     """Canonical country count."""
-    assert wkls.countries().count() == 219
+    assert len(wkls.countries()) == 219
 
 
 def test_dependencies_at_root():
     """Canonical dependency count."""
-    assert wkls.dependencies().count() == 53
+    assert len(wkls.dependencies()) == 53
 
 
 def test_subtypes_at_root():
     """subtypes() at root returns the distinct set of subtypes in the dataset."""
-    table = wkls.subtypes().to_arrow_table()
-    subtype_values = {table.column("subtype")[i].as_py() for i in range(table.num_rows)}
+    rows = wkls.subtypes().to_dicts()
+    subtype_values = {r["subtype"] for r in rows}
     for expected in ("country", "region", "county", "locality", "localadmin"):
         assert expected in subtype_values, f"Missing subtype: {expected}"
 
@@ -531,44 +508,44 @@ def test_subtypes_at_root():
 def test_countries_scope_narrows_to_self_on_country_chain():
     """wkls.us.countries() returns [US] — the country that contains the chain."""
     result = wkls.us.countries()
-    assert result.count() == 1
-    tbl = result.to_arrow_table()
-    assert tbl.column("country")[0].as_py() == "US"
-    assert tbl.column("subtype")[0].as_py() == "country"
+    assert len(result) == 1
+    rows = result.to_dicts()
+    assert rows[0]["country"] == "US"
+    assert rows[0]["subtype"] == "country"
 
 
 def test_countries_scope_narrows_to_self_past_country_chain():
     """countries() at region or city depth still returns the containing country."""
-    assert wkls.us.ca.countries().count() == 1
-    assert wkls.us.ca.sanfrancisco.countries().count() == 1
+    assert len(wkls.us.ca.countries()) == 1
+    assert len(wkls.us.ca.sanfrancisco.countries()) == 1
 
 
 def test_dependencies_scope_empty_on_country_chain():
     """wkls.us.dependencies() returns [] — US is a country, no dependencies in scope."""
-    assert wkls.us.dependencies().count() == 0
+    assert len(wkls.us.dependencies()) == 0
 
 
 def test_dependencies_scope_narrows_to_self_on_dependency_chain():
     """wkls.pr.dependencies() returns [PR] — PR's subtype is 'dependency'."""
     result = wkls.pr.dependencies()
-    assert result.count() == 1
-    tbl = result.to_arrow_table()
-    assert tbl.column("country")[0].as_py() == "PR"
-    assert tbl.column("subtype")[0].as_py() == "dependency"
+    assert len(result) == 1
+    rows = result.to_dicts()
+    assert rows[0]["country"] == "PR"
+    assert rows[0]["subtype"] == "dependency"
 
 
 def test_subtypes_scope_narrows_to_country():
     """wkls.us.subtypes() lists distinct subtypes present in the US."""
-    tbl = wkls.us.subtypes().to_arrow_table()
-    values = {tbl.column("subtype")[i].as_py() for i in range(tbl.num_rows)}
+    rows = wkls.us.subtypes().to_dicts()
+    values = {r["subtype"] for r in rows}
     # US has country + region + county + locality at minimum.
     assert {"country", "region", "county", "locality"}.issubset(values)
 
 
 def test_subtypes_scope_narrows_to_region():
     """wkls.us.ca.subtypes() lists distinct subtypes present in CA."""
-    tbl = wkls.us.ca.subtypes().to_arrow_table()
-    values = {tbl.column("subtype")[i].as_py() for i in range(tbl.num_rows)}
+    rows = wkls.us.ca.subtypes().to_dicts()
+    values = {r["subtype"] for r in rows}
     # CA is itself a region; its subtree adds county + locality + localadmin.
     assert "region" in values
     assert values & {"county", "locality", "localadmin"}
@@ -579,8 +556,8 @@ def test_subtypes_no_region_scope():
 
     FK is itself a dependency, so its subtype scope is {dependency, locality}.
     """
-    tbl = wkls.fk.subtypes().to_arrow_table()
-    values = {tbl.column("subtype")[i].as_py() for i in range(tbl.num_rows)}
+    rows = wkls.fk.subtypes().to_dicts()
+    values = {r["subtype"] for r in rows}
     assert "region" not in values
     assert "dependency" in values  # FK is a dependency
     assert "locality" in values  # FK has localities
@@ -602,11 +579,8 @@ def test_cities_at_locality_level_includes_self():
     """
     oakland = wkls.us.ca.alamedacounty.oakland
     cities = oakland.cities()
-    assert cities.count() >= 1
-    names = {
-        cities.to_arrow_table().column("name_primary")[i].as_py()
-        for i in range(cities.count())
-    }
+    assert len(cities) >= 1
+    names = {r["name_primary"] for r in cities.to_dicts()}
     assert "Oakland" in names
 
 
@@ -615,7 +589,7 @@ def test_counties_at_county_level_includes_self():
     sf = wkls.us.ca.sanfrancisco
     # Overture models SF as a county (consolidated city-county).
     counties = sf.counties()
-    assert counties.count() == 1
-    tbl = counties.to_arrow_table()
-    assert tbl.column("name_primary")[0].as_py() == "San Francisco"
-    assert tbl.column("subtype")[0].as_py() == "county"
+    assert len(counties) == 1
+    rows = counties.to_dicts()
+    assert rows[0]["name_primary"] == "San Francisco"
+    assert rows[0]["subtype"] == "county"

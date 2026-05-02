@@ -214,16 +214,16 @@ def test_counties_via_name_chain():
     'IN-MAHARASHTRA' (concatenating country_iso + chain[1].upper()),
     which matched zero rows. Must equal the ISO-chain path.
     """
-    from_name = wkls.india.maharashtra.counties().count()
-    from_iso = wkls.IN.MH.counties().count()
+    from_name = len(wkls.india.maharashtra.counties())
+    from_iso = len(wkls.IN.MH.counties())
     assert from_name == from_iso
     assert from_name >= 1
 
 
 def test_cities_via_name_chain():
     """Name-based chain also supports cities() symmetrically with ISO."""
-    from_name = wkls.india.maharashtra.cities().count()
-    from_iso = wkls.IN.MH.cities().count()
+    from_name = len(wkls.india.maharashtra.cities())
+    from_iso = len(wkls.IN.MH.cities())
     assert from_name == from_iso
     assert from_name >= 1
 
@@ -274,7 +274,7 @@ def test_countries_without_region_returns_empty():
     """Countries with no regions return an empty DataFrame, not an error."""
     # Regions scope to a subtree; FK has no region rows, so this is zero
     # — not a special error case.
-    assert wkls.fk.regions().count() == 0
+    assert len(wkls.fk.regions()) == 0
 
 
 # ---------- Chain validation & error handling ----------
