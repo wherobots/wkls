@@ -92,3 +92,10 @@ def test_roundtrip_geopandas():
     gdf = gpd.GeoDataFrame.from_arrow(tbl)
     assert gdf.geometry.notna().any()
     assert len(gdf) == len(tbl)
+
+
+def test_no_string_view_columns():
+    """String columns are utf8, not utf8_view (pyarrow.compute compat)."""
+    tbl = wkls.us.ca.counties().to_arrow_table()
+    for field in tbl.schema:
+        assert field.type != pa.string_view(), f"{field.name} is string_view"

@@ -1818,7 +1818,15 @@ class Wkl:
             wkb_col = wkb_col.cast(pa.binary())
 
         geo_col = ga.with_crs(wkb_col, crs=ga.OGC_CRS84)
-        return tbl.set_column(geom_idx, "geometry", geo_col)
+        tbl = tbl.set_column(geom_idx, "geometry", geo_col)
+
+        # SedonaDB returns string_view columns; many pyarrow.compute
+        # kernels don't support string_view yet, so cast to string.
+        for i, field in enumerate(tbl.schema):
+            if field.type == pa.string_view():
+                tbl = tbl.set_column(i, field.name, tbl.column(i).cast(pa.string()))
+
+        return tbl
 
     def __arrow_c_array__(self, requested_schema=None):
         """Implement the Arrow PyCapsule protocol
