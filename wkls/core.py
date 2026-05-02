@@ -364,6 +364,10 @@ _S2_REDIRECTS: dict[str, str] = {
     "show": "Use 'wkl[:n]'.",
     "collect": "Use 'list(wkl)'.",
     "to_pylist": "Use 'list(wkl)'.",
+    "tail": "Use 'wkl[-n:]'.",
+    "first": "Use 'wkl[0]'.",
+    "last": "Use 'wkl[-1]'.",
+    "sample": "Use 'wkl.to_arrow_table()' and your engine of choice.",
 }
 
 _S3_REDIRECTS: dict[str, str] = {
@@ -378,6 +382,12 @@ _S3_REDIRECTS: dict[str, str] = {
     "to_geopandas": "Use 'gpd.GeoDataFrame.from_arrow(wkl.to_arrow_table())'.",
     "to_polars": "Use 'pl.from_arrow(wkl.to_arrow_table())'.",
     "to_arrow": "Use 'wkl.to_arrow_table()' (the public name follows SedonaDB/DuckDB convention).",
+    "drop": "Use 'wkl.to_arrow_table()' and your engine of choice.",
+    "iloc": "Use 'wkl[i]' for positional access.",
+    "loc": "Use 'wkl[i]' for positional access.",
+    "compute": "Use 'wkl.to_arrow_table()' and your engine of choice.",
+    "distinct": "Use 'wkl.to_arrow_table()' and your engine of choice.",
+    "unique": "Use 'wkl.to_arrow_table()' and your engine of choice.",
 }
 
 _GENERIC_FALLBACK = "Use 'wkl.to_arrow_table()' and your engine of choice."
@@ -1019,14 +1029,14 @@ class Wkl:
     def __getattr__(self, attr: str) -> Wkl:
         """Handle attribute access — chain drill or redirect.
 
-        Two behaviors:
+        Resolution order:
 
-        - **Chain drill** (valid location identifier): drill one level
-          deeper into the admin hierarchy
-          (``wkls.us.ca.sanfrancisco``).
-        - **Redirect**: any attribute that isn't a valid location
-          identifier raises ``AttributeError`` with a priority-ordered
-          suggestion (Surface 1 → Surface 2 → Surface 3).
+        1. Private/dunder attributes → ``AttributeError``.
+        2. Root-only methods → ``AttributeError``.
+        3. Redirect tables (S1 → S2 → S3) → ``AttributeError`` with
+           suggestion.
+        4. Chain drill (alphanumeric location identifier) → new ``Wkl``.
+        5. Generic fallback → ``AttributeError``.
 
         Raises:
             AttributeError: For private/dunder attributes, root-only
@@ -1047,6 +1057,14 @@ class Wkl:
             raise AttributeError(
                 f"'{self.__class__.__name__}' object has no attribute '{attr}'"
             )
+
+        # Redirect check — must fire before chain drill so that known
+        # non-location attrs (e.g. .filter) don't silently extend the chain.
+        for table in (_S1_REDIRECTS, _S2_REDIRECTS, _S3_REDIRECTS):
+            if attr in table:
+                raise AttributeError(
+                    f"'{attr}' is not part of the Wkl API. {table[attr]}"
+                )
 
         # Chain drill: only attempt for names that could be location
         # identifiers (alphanumeric). Result-mode Wkls (no chain, have
@@ -1073,13 +1091,6 @@ class Wkl:
                     parent_id = parent_row.column("id")[0].as_py()
                     return Wkl(new_chain, _parent_id=parent_id)
                 return Wkl(new_chain)
-
-        # Not a location name → redirect with priority.
-        for table in (_S1_REDIRECTS, _S2_REDIRECTS, _S3_REDIRECTS):
-            if attr in table:
-                raise AttributeError(
-                    f"'{attr}' is not part of the Wkl API. {table[attr]}"
-                )
 
         raise AttributeError(
             f"'{attr}' is not part of the Wkl API. {_GENERIC_FALLBACK}"

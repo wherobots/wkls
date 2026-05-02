@@ -400,3 +400,9 @@ def test_svg_removed():
 def test_hexwkb_removed():
     """hexwkb() no longer exists on Wkl."""
     assert not hasattr(wkls.Wkl, "hexwkb")
+
+
+def test_redirect_fires_on_chain_mode():
+    """Known DataFrame verbs redirect even on chain-mode Wkls."""
+    with pytest.raises(AttributeError, match="search"):
+        wkls.us.ca.filter  # noqa: B018
