@@ -142,10 +142,10 @@ def test_suggestions_show_in_empty_repr():
     assert "wkls.us.ca.search('sanfran')" in repr_str
 
 
-# NOTE: The pre-v1.3 companion test for bracket access on a Wkl instance
+# NOTE: The pre-v1.2 companion test for bracket access on a Wkl instance
 # (`Wkl()["uss"]` returning a Wkl with a "Did you mean:" hint in repr) was
 # removed when the bracket-access shim was replaced with a TypeError in
-# v1.3.0. TypeError coverage lives in tests/test_deprecation.py.
+# v1.2.0. TypeError coverage lives in tests/test_deprecation.py.
 
 
 # ---------- Error propagation on chained Wkl ----------

@@ -1,6 +1,6 @@
 """Tests for the Surface 2 Python collection protocol on ``Wkl``.
 
-Covers the v1.3.0 changes:
+Covers the v1.2.0 changes:
 
 - Collection dunders (``__len__``, ``__bool__``, ``__iter__``,
   ``__getitem__``, ``__contains__``).
@@ -13,7 +13,7 @@ Covers the v1.3.0 changes:
 - Bracket string subscript raises ``TypeError`` (was: ``DeprecationWarning``
   shim for chain access / wildcard).
 
-See the v1.3.0 release notes for the full contract this test suite
+See the v1.2.0 release notes for the full contract this test suite
 validates.
 """
 

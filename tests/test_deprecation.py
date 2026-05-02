@@ -1,8 +1,8 @@
-"""Tests for the v1.3.0 removal of the bracket-access deprecation shim.
+"""Tests for the v1.2.0 removal of the bracket-access deprecation shim.
 
-Pre-v1.3, ``Wkl.__getitem__`` accepted string keys as a deprecated
+Pre-v1.2, ``Wkl.__getitem__`` accepted string keys as a deprecated
 alias for chain access / wildcard search and emitted a
-``DeprecationWarning``. In v1.3.0 the shim was removed — string
+``DeprecationWarning``. In v1.2.0 the shim was removed — string
 subscripts now raise ``TypeError`` pointing at the modern replacement
 (dot access, ``.search(...)``, ``.resolve()``). See
 ``docs/design/pythonic-wkl.md`` § Migration.
@@ -20,7 +20,7 @@ from wkls import Wkl
 
 
 def test_string_bracket_access_raises():
-    """``Wkl()["IN"]`` used to warn; v1.3 raises ``TypeError``."""
+    """``Wkl()["IN"]`` used to warn; v1.2 raises ``TypeError``."""
     with pytest.raises(TypeError, match="dot access"):
         Wkl()["IN"]
 
@@ -32,7 +32,7 @@ def test_string_bracket_access_message_points_at_search():
 
 
 def test_wildcard_bracket_access_raises():
-    """``wkls.us.ca["%fran%"]`` used to warn and resolve; v1.3 raises."""
+    """``wkls.us.ca["%fran%"]`` used to warn and resolve; v1.2 raises."""
     with pytest.raises(TypeError, match="dot access"):
         wkls.us.ca["%fran%"]
 
@@ -44,7 +44,7 @@ def test_chained_string_bracket_access_raises():
 
 
 def test_list_bracket_access_raises():
-    """List keys (pre-v1.3: DataFrame column selection passthrough) now raise.
+    """List keys (pre-v1.2: DataFrame column selection passthrough) now raise.
 
     Users wanting DataFrame-style column selection should call
     ``.resolve()`` and use the sedona DataFrame directly.
