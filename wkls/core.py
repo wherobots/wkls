@@ -1668,6 +1668,7 @@ class Wkl:
 
         Raises:
             ValueError: If no results found for the location chain.
+            AmbiguousLocationError: If the chain matches multiple rows.
         """
         return self._get_geom_expr("ST_AsText(geometry)")
 
@@ -1679,6 +1680,7 @@ class Wkl:
 
         Raises:
             ValueError: If no results found for the location chain.
+            AmbiguousLocationError: If the chain matches multiple rows.
         """
         return self._get_geom_expr("ST_AsWKB(geometry)")
 
@@ -1690,6 +1692,7 @@ class Wkl:
 
         Raises:
             ValueError: If no results found for the location chain.
+            AmbiguousLocationError: If the chain matches multiple rows.
         """
         return self._get_geom_expr("ST_AsGeoJSON(geometry)")
 
