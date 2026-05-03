@@ -63,7 +63,7 @@ def test_ambiguity_error_indistinguishable_candidates_uses_by_id():
     else:
         pytest.fail("expected AmbiguousLocationError")
     assert "Narrow with one of" in msg
-    assert "Or pick by id" in msg
+    assert "Pick by id" in msg
     # Two literal by_id calls, one per candidate.
     assert msg.count("wkls.by_id('") == 2
 
@@ -93,7 +93,7 @@ def test_ambiguity_error_suggests_subtype_narrowing_when_subtypes_differ():
         msg = str(e)
     else:
         pytest.fail("expected AmbiguousLocationError")
-    assert "filter by subtype on this result" in msg
+    assert "Filter by subtype on this result" in msg
     assert ".cities()" in msg
     assert ".counties()" in msg
     # by_id still advertised as the universal escape hatch.

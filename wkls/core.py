@@ -748,7 +748,7 @@ class Wkl:
                 by_method.setdefault(method, []).append(c["subtype"])
         if len(by_method) > 1:
             lines.append("")
-            lines.append("Or filter by subtype on this result:")
+            lines.append("Filter by subtype on this result:")
             for method, subtypes in by_method.items():
                 label = "/".join(sorted(set(subtypes)))
                 lines.append(f"  .{method}()  # {len(subtypes)} {label} row(s)")
@@ -756,7 +756,7 @@ class Wkl:
         # Always show by_id lines with literal UUID + .wkt() call so agents
         # can copy-paste directly.
         lines.append("")
-        lines.append("Or pick by id:")
+        lines.append("Pick by id:")
         id_cap = 5
         for c in candidates[:id_cap]:
             parent_note = f", in {c['parent_name']}" if c["parent_name"] else ""
