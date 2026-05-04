@@ -113,43 +113,6 @@ CITY_NO_REGION = """
     )
 """
 
-# --- Metadata queries ---
-
-REGIONS_LIST = """
-    SELECT * FROM wkls
-    WHERE country = $country
-      AND subtype = 'region'
-"""
-
-COUNTRIES_LIST = """
-    SELECT DISTINCT id, country, subtype, name_primary, name_en
-    FROM wkls
-    WHERE subtype = 'country'
-"""
-
-DEPENDENCIES_LIST = """
-    SELECT DISTINCT id, country, subtype, name_primary, name_en
-    FROM wkls
-    WHERE subtype = 'dependency'
-"""
-
-SUBTYPES_LIST = """
-    SELECT DISTINCT subtype FROM wkls
-"""
-
-SUBDIVISIONS = """
-    SELECT * FROM wkls
-    WHERE country = $country
-      AND region = $region
-      AND subtype IN {subtype_filter}
-"""
-
-SUBDIVISIONS_NO_REGION = """
-    SELECT * FROM wkls
-    WHERE country = $country
-      AND subtype IN {subtype_filter}
-"""
-
 # --- Suggestion queries (for "did you mean" feature) ---
 
 # For country-level suggestions (bidirectional prefix match on ISO codes)
