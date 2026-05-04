@@ -416,6 +416,17 @@ _STR_SUBSCRIPT_MSG = (
     "  - For arbitrary DataFrame ops: call .to_arrow_table() and use your engine of choice"
 )
 
+# Maps admin subtype → listing method name. Used by
+# _ambiguity_message to suggest subtype-narrowing calls.
+_METHOD_FOR_SUBTYPE: dict[str, str] = {
+    "country": "countries",
+    "dependency": "dependencies",
+    "region": "regions",
+    "county": "counties",
+    "locality": "cities",
+    "localadmin": "cities",
+}
+
 
 def _normalize_name(name: str | None) -> str:
     """Lowercase + strip non-alphanumerics. Matches ``__getattr__`` input form."""
@@ -491,7 +502,7 @@ class Wkl:
 
     Iteration is backed by a cached pyarrow Table — no SQL per row. For
     DataFrame operations outside admin-boundary lookup (``.filter``,
-    ``.join``, ``.group_by``, …), call ``.resolve()``.
+    ``.join``, ``.group_by``, …), call ``.to_arrow_table()``.
     """
 
     _has_region: bool = True
@@ -733,14 +744,6 @@ class Wkl:
         # subtype *groups* (two rows both in ``locality`` don't get a
         # suggestion since ``.cities()`` wouldn't reduce anything). Shown
         # alongside the primary narrower, before ``by_id``.
-        _METHOD_FOR_SUBTYPE = {
-            "country": "countries",
-            "dependency": "dependencies",
-            "region": "regions",
-            "county": "counties",
-            "locality": "cities",
-            "localadmin": "cities",
-        }
         by_method: dict[str, list[str]] = {}
         for c in candidates:
             method = _METHOD_FOR_SUBTYPE.get(c["subtype"])
