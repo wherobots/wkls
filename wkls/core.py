@@ -19,20 +19,49 @@ Example usage:
 
 from __future__ import annotations
 
-import importlib.resources
-import os
 import re
-import urllib.request
-import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from typing import Any, Callable
 
 import pyarrow as pa
 import sedonadb
 
-from . import data, queries
+from . import _bootstrap, queries
+from ._geometry import _GeometryMixin
+from ._version import _list_s3_releases, _resolve_overture_version
 
 __all__ = ["AmbiguousLocationError", "Wkl"]
+
+# Backward-compat aliases — mutable containers share identity with _bootstrap,
+# so .clear() / mutation on either module's reference affects both.
+_dir_cache = _bootstrap._dir_cache
+_country_info = _bootstrap._country_info
+_region_info = _bootstrap._region_info
+_row_info = _bootstrap._row_info
+
+# Scalar state and the sedona context are re-exported so that existing
+# code (including tests) that reads/patches ``core.<name>`` keeps working.
+sedona = _bootstrap.sedona
+_current_overture_version = _bootstrap._current_overture_version
+_overture_view_loaded = _bootstrap._overture_view_loaded
+
+
+def _ensure_overture_loaded(*, force: bool = False) -> None:
+    """Thin wrapper around ``_bootstrap._ensure_overture_loaded``.
+
+    Kept in ``core`` so ``monkeypatch.setattr(core, ...)`` in tests can
+    swap the flag or the function without touching ``_bootstrap``.
+    """
+    global _current_overture_version, _overture_view_loaded
+    if _overture_view_loaded and not force:
+        return
+    # Delegate to _bootstrap for the heavy lifting, but sync scalar
+    # state back so both modules stay consistent.
+    _bootstrap._overture_view_loaded = _overture_view_loaded
+    _bootstrap._current_overture_version = _current_overture_version
+    _bootstrap._ensure_overture_loaded(force=force)
+    _current_overture_version = _bootstrap._current_overture_version
+    _overture_view_loaded = _bootstrap._overture_view_loaded
 
 
 class AmbiguousLocationError(ValueError):
@@ -46,241 +75,6 @@ class AmbiguousLocationError(ValueError):
     - 4-level parent narrower: ``wkls.us.pa.adamscounty.franklin``
     - exact pick: ``wkls.by_id('<uuid>')``
     """
-
-
-# S3 bucket URL for listing Overture Maps releases (HTTP avoids SSL cert
-# issues on macOS system Python installs that lack certifi/root certs)
-_S3_BUCKET_URL = "http://overturemaps-us-west-2.s3.amazonaws.com/"
-_S3_RELEASE_PREFIX = "release/"
-_S3_DIVISION_AREA_SUFFIX = "theme=divisions/type=division_area/"
-
-# Module-level state for the active Overture version
-_current_overture_version: str | None = None
-
-# True once the remote GeoParquet has been registered as the
-# ``overture`` SedonaDB view. Flipped by ``_ensure_overture_loaded``
-# (lazy, on first geometry call) or by ``configure()``.
-_overture_view_loaded: bool = False
-
-
-def _list_s3_releases() -> list[str]:
-    """List all available Overture Maps releases on S3.
-
-    Queries the public S3 bucket listing to discover available release
-    versions. The bucket is unauthenticated and returns XML with
-    CommonPrefixes for each release directory.
-
-    Returns:
-        Sorted list of version strings (e.g., ["2025-12-17.0", "2026-01-21.0"]).
-
-    Raises:
-        ConnectionError: If the S3 bucket listing request fails.
-    """
-    url = f"{_S3_BUCKET_URL}?list-type=2&prefix={_S3_RELEASE_PREFIX}&delimiter=/"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:
-            xml_data = response.read()
-    except (urllib.error.URLError, TimeoutError) as e:
-        raise ConnectionError(
-            f"Failed to list Overture Maps releases from S3: {e}\n"
-            "Check your network connection. Geometry lookups require "
-            "internet access to the Overture Maps S3 bucket."
-        ) from e
-
-    root = ET.fromstring(xml_data)
-    # XML namespace for S3 ListBucketResult
-    ns = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
-
-    versions = []
-    for prefix_elem in root.findall("s3:CommonPrefixes/s3:Prefix", ns):
-        prefix = prefix_elem.text or ""
-        # Extract version from "release/2025-12-17.0/"
-        version = prefix.removeprefix(_S3_RELEASE_PREFIX).rstrip("/")
-        if version:
-            versions.append(version)
-
-    return sorted(versions)
-
-
-def _resolve_overture_version() -> str:
-    """Resolve which Overture Maps version to use.
-
-    Priority:
-        1. ``WKLS_OVERTURE_VERSION`` environment variable
-        2. Auto-detect the latest release from S3
-
-    Returns:
-        Resolved version string.
-
-    Raises:
-        ValueError: If the env var specifies an unavailable version.
-        ConnectionError: If S3 listing fails.
-    """
-    env_version = os.environ.get("WKLS_OVERTURE_VERSION")
-    if env_version:
-        available = _list_s3_releases()
-        if env_version not in available:
-            raise ValueError(
-                f"Overture Maps version '{env_version}' is not available on S3.\n"
-                f"Available versions: {', '.join(available)}\n"
-                "Set WKLS_OVERTURE_VERSION to a valid version or remove it "
-                "to auto-detect the latest."
-            )
-        return env_version
-
-    available = _list_s3_releases()
-    if not available:
-        raise ConnectionError(
-            "No Overture Maps releases found on S3. "
-            "The S3 bucket may be temporarily unavailable."
-        )
-    return available[-1]
-
-
-def _overture_uri(version: str) -> str:
-    """Build the S3 URI for a given Overture Maps version.
-
-    Args:
-        version: Overture Maps release version string.
-
-    Returns:
-        Full S3 URI to the division_area GeoParquet data.
-    """
-    return f"s3://overturemaps-us-west-2/{_S3_RELEASE_PREFIX}{version}/{_S3_DIVISION_AREA_SUFFIX}"
-
-
-def _log_and_query(
-    exec_fn: Callable[..., sedonadb.dataframe.DataFrame],
-    query: str,
-    **kwargs: Any,
-) -> sedonadb.dataframe.DataFrame:
-    """Execute a SQL query with optional debug logging.
-
-    Args:
-        exec_fn: Function to execute the SQL query.
-        query: SQL query string to execute.
-        **kwargs: Additional keyword arguments passed to exec_fn (e.g. params).
-
-    Returns:
-        DataFrame containing the query results.
-    """
-    if os.environ.get("WKLS_DEBUG", "false").lower() in ["true", "yes", "1"]:
-        print(query)
-        if kwargs:
-            print(f"  params={kwargs}")
-    return exec_fn(query, **kwargs)
-
-
-def _initialize_table() -> sedonadb.SedonaContext:
-    """Initialize the SedonaDB context and register the local metadata view.
-
-    Creates the ``wkls`` SedonaDB view from the bundled local parquet —
-    pure local I/O, no network. The remote ``overture`` view is
-    registered lazily by ``_ensure_overture_loaded`` on first geometry
-    call, so ``import wkls`` stays offline-safe.
-
-    Returns:
-        Configured SedonaContext instance.
-    """
-    sedona = sedonadb.connect()
-
-    # Enable interactive mode for auto-display
-    sedona.options.interactive = True
-
-    # Monkey-patch `.sql()` for debug mode.
-    sedona_sql = sedona.sql
-    sedona.sql = lambda q, **kw: _log_and_query(sedona_sql, q, **kw)
-
-    sedona.sql(queries.INITIALIZATION)
-    sedona.read_parquet(
-        f"{importlib.resources.files(data)}/overture.zstd18.parquet"
-    ).to_view("wkls")
-
-    return sedona
-
-
-def _seed_country_info() -> None:
-    """Populate ``_country_info`` for every country identifier in one pass.
-
-    Without this, each unique country access (``wkls.us``, ``wkls.unitedstates``,
-    etc.) fires two lookup queries the first time — and ``help(wkls)`` /
-    ``dir()`` introspection paths fan this out across ~438 identifiers.
-    Two small scans up front replace hundreds of queries on the cold path.
-    """
-    regions_tbl = sedona.sql(queries.COUNTRY_INFO_SEED_WITH_REGIONS).to_arrow_table()
-    has_region_isos: set[str] = {
-        regions_tbl.column("iso")[i].as_py() for i in range(regions_tbl.num_rows)
-    }
-    tbl = sedona.sql(queries.COUNTRY_INFO_SEED).to_arrow_table()
-    for i in range(tbl.num_rows):
-        iso = tbl.column("iso")[i].as_py()
-        name = tbl.column("name")[i].as_py()
-        value = (iso, iso in has_region_isos)
-        _country_info[iso.lower()] = value
-        if name:
-            _country_info[name] = value
-
-
-# Initialize the table when the module is imported
-sedona = _initialize_table()
-
-
-def _ensure_overture_loaded(*, force: bool = False) -> None:
-    """Register the remote Overture GeoParquet view on first geometry access.
-
-    Resolves the active Overture version (via ``WKLS_OVERTURE_VERSION``,
-    module-level cache, or an S3 listing), then registers the remote
-    GeoParquet as the ``overture`` SedonaDB view. Idempotent — later
-    calls short-circuit on ``_overture_view_loaded`` unless *force* is
-    set (used by ``configure()`` to reload after a version change).
-
-    Args:
-        force: If True, reload the view even if already loaded.
-
-    Raises:
-        ConnectionError: If the S3 listing or parquet read fails. The
-            message points at the network requirement.
-    """
-    global _current_overture_version, _overture_view_loaded
-    if _overture_view_loaded and not force:
-        return
-    if _current_overture_version is None:
-        _current_overture_version = _resolve_overture_version()
-    sedona.read_parquet(
-        _overture_uri(_current_overture_version),
-        options={
-            "aws.skip_signature": True,
-            "aws.region": "us-west-2",
-        },
-    ).to_view("overture", overwrite=True)
-    _overture_view_loaded = True
-
-
-# Cache for country identifier -> (canonical ISO, has_region).
-# Keyed by the lowercased raw identifier (ISO or name); populated once per
-# country-shaped access, shared across all Wkl instantiations in the
-# process. Static per Overture version, safe to cache indefinitely.
-_country_info: dict[str, tuple[str, bool]] = {}
-
-# Cache for (country_iso, region_identifier) -> canonical region ISO.
-# The identifier key is lowercased raw input (ISO suffix like "mh",
-# full region ISO like "in-mh", or name like "maharashtra").
-# Canonical value is the full region ISO ("IN-MH").
-_region_info: dict[tuple[str, str], str] = {}
-
-# Cache for __dir__ results, keyed by chain tuple.
-# ()  -> root-level country identifiers
-# ("US",) -> US region identifiers
-# Values are sorted lists of ISO codes + normalized names.
-_dir_cache: dict[tuple[str, ...], list[str]] = {}
-
-# Cache for row-by-id lookups. Keyed by Overture UUID; value is a dict of
-# id, country, region, subtype, name_primary, name_en, parent_division_id.
-# Populated by Wkl.by_id() and Wkl.parent.
-_row_info: dict[str, dict[str, object]] = {}
-
-
-_seed_country_info()
 
 
 # Methods surfaced by __dir__ at each chain depth.
@@ -472,7 +266,51 @@ def _build_error_hint(chain: list[str], suggestions: list[str]) -> str:
     )
 
 
-class Wkl:
+def _group_candidates(
+    table: pa.Table,
+    fetch_row: Callable[[str], dict[str, object] | None],
+    sample: int = 10,
+) -> list[dict[str, Any]]:
+    """Extract and annotate candidate rows for an ambiguity message.
+
+    Args:
+        table: Arrow table of candidate rows.
+        fetch_row: Callable to look up a parent row by id.
+        sample: Max candidates to process.
+
+    Returns:
+        List of dicts with keys: subtype, id, attr, name, parent_attr, parent_name.
+    """
+    n = min(table.num_rows, sample)
+    candidates: list[dict[str, Any]] = []
+    for i in range(n):
+        row = {col: table.column(col)[i].as_py() for col in table.column_names}
+        attr = _chain_attr_for_row(row)
+        name = row.get("name_en") or row.get("name_primary") or "?"
+        parent_id = row.get("parent_id")
+        parent_attr: str | None = None
+        parent_name: str | None = None
+        if parent_id:
+            parent = fetch_row(str(parent_id))
+            if parent:
+                parent_attr = _chain_attr_for_row(parent)
+                parent_name = (
+                    parent.get("name_en") or parent.get("name_primary") or None
+                )
+        candidates.append(
+            {
+                "subtype": row.get("subtype") or "?",
+                "id": row.get("id"),
+                "attr": attr,
+                "name": name,
+                "parent_attr": parent_attr,
+                "parent_name": parent_name,
+            }
+        )
+    return candidates
+
+
+class Wkl(_GeometryMixin):
     """Administrative boundaries via dot access.
 
     For full usage (chaining, disambiguation, listing, navigation,
@@ -575,14 +413,14 @@ class Wkl:
             return
 
         key = self.chain[0].lower()
-        if key not in _country_info:
+        if key not in _bootstrap._country_info:
             iso, has_region = self._lookup_country(key)
-            _country_info[key] = (iso, has_region)
+            _bootstrap._country_info[key] = (iso, has_region)
             # Alias the ISO form so `wkls.us` and `wkls.unitedstates` share
             # the same cached entry on whichever access comes second.
-            _country_info[iso.lower()] = (iso, has_region)
+            _bootstrap._country_info[iso.lower()] = (iso, has_region)
 
-        self._country_iso, self._has_region = _country_info[key]
+        self._country_iso, self._has_region = _bootstrap._country_info[key]
 
     def _lookup_country(self, identifier: str) -> tuple[str, bool]:
         """Resolve any country identifier to (canonical ISO, has_region).
@@ -600,12 +438,16 @@ class Wkl:
             Tuple of (canonical ISO, has_region). For unknown inputs,
             the uppercased original string and ``False``.
         """
-        df = sedona.sql(queries.COUNTRY_LOOKUP, params={"identifier": identifier})
+        df = _bootstrap.sedona.sql(
+            queries.COUNTRY_LOOKUP, params={"identifier": identifier}
+        )
         table = df.to_arrow_table()
         if table.num_rows == 0:
             return identifier.upper(), False
         iso = table.column("iso")[0].as_py()
-        df_has = sedona.sql(queries.COUNTRY_HAS_REGIONS, params={"country": iso})
+        df_has = _bootstrap.sedona.sql(
+            queries.COUNTRY_HAS_REGIONS, params={"country": iso}
+        )
         return iso, df_has.count() > 0
 
     @property
@@ -619,9 +461,9 @@ class Wkl:
         """
         raw = self.chain[1]
         key = (self._country_iso, raw.lower())
-        if key not in _region_info:
-            _region_info[key] = self._lookup_region(raw)
-        return _region_info[key]
+        if key not in _bootstrap._region_info:
+            _bootstrap._region_info[key] = self._lookup_region(raw)
+        return _bootstrap._region_info[key]
 
     def _lookup_region(self, identifier: str) -> str:
         """Resolve a region identifier to its canonical ISO (e.g. 'IN-MH').
@@ -633,7 +475,7 @@ class Wkl:
             if "-" in identifier
             else f"{self._country_iso}-{identifier.upper()}"
         )
-        df = sedona.sql(
+        df = _bootstrap.sedona.sql(
             queries.REGION_LOOKUP,
             params={
                 "country": self._country_iso,
@@ -661,31 +503,7 @@ class Wkl:
         n = table.num_rows
         sample = min(n, 10)
 
-        candidates: list[dict[str, Any]] = []
-        for i in range(sample):
-            row = {col: table.column(col)[i].as_py() for col in table.column_names}
-            attr = _chain_attr_for_row(row)
-            name = row.get("name_en") or row.get("name_primary") or "?"
-            parent_id = row.get("parent_id")
-            parent_attr: str | None = None
-            parent_name: str | None = None
-            if parent_id:
-                parent = self._fetch_row(str(parent_id))
-                if parent:
-                    parent_attr = _chain_attr_for_row(parent)
-                    parent_name = (
-                        parent.get("name_en") or parent.get("name_primary") or None
-                    )
-            candidates.append(
-                {
-                    "subtype": row.get("subtype") or "?",
-                    "id": row.get("id"),
-                    "attr": attr,
-                    "name": name,
-                    "parent_attr": parent_attr,
-                    "parent_name": parent_name,
-                }
-            )
+        candidates = _group_candidates(table, self._fetch_row, sample)
 
         # Dots only step through the admin hierarchy. The two cases where
         # a chain narrower can resolve the ambiguity:
@@ -791,7 +609,7 @@ class Wkl:
             >>> wkls.by_id('273bc9a0-96a1-402c-992c-84f5c2f212cb').wkt()
             'POLYGON (((...)))'
         """
-        df = sedona.sql(queries.ROW_BY_ID, params={"row_id": row_id})
+        df = _bootstrap.sedona.sql(queries.ROW_BY_ID, params={"row_id": row_id})
         if df.count() == 0:
             raise ValueError(f"No row found with id={row_id!r}.")
         return cls(_df=df)
@@ -907,14 +725,14 @@ class Wkl:
         if no row exists with that id (e.g., parent_division_id pointing
         at a row outside our bundled subtypes).
         """
-        if row_id in _row_info:
-            return _row_info[row_id]
-        df = sedona.sql(queries.ROW_BY_ID, params={"row_id": row_id})
+        if row_id in _bootstrap._row_info:
+            return _bootstrap._row_info[row_id]
+        df = _bootstrap.sedona.sql(queries.ROW_BY_ID, params={"row_id": row_id})
         table = df.to_arrow_table()
         if table.num_rows == 0:
             return None
         row = {col: table.column(col)[0].as_py() for col in table.column_names}
-        _row_info[row_id] = row
+        _bootstrap._row_info[row_id] = row
         return row
 
     def overture_version(self) -> str:
@@ -933,14 +751,9 @@ class Wkl:
             ConnectionError: If the version hasn't been resolved yet
                 and the S3 listing fails.
         """
-        global _current_overture_version
-        if self.chain:
-            raise ValueError(
-                "overture_version() is only available at the root level. Use wkls.overture_version(), not wkls.us.overture_version()."
-            )
-        if _current_overture_version is None:
-            _current_overture_version = _resolve_overture_version()
-        return _current_overture_version
+        if _bootstrap._current_overture_version is None:
+            _bootstrap._current_overture_version = _resolve_overture_version()
+        return _bootstrap._current_overture_version
 
     def overture_releases(self) -> list[str]:
         """List all available Overture Maps releases on S3.
@@ -955,11 +768,6 @@ class Wkl:
             ValueError: If called on a chained object.
             ConnectionError: If S3 listing fails.
         """
-        if self.chain:
-            raise ValueError(
-                "overture_releases() is only available at the root level. "
-                "Use wkls.overture_releases(), not wkls.us.overture_releases()."
-            )
         return _list_s3_releases()
 
     def configure(self, overture_version: str) -> None:
@@ -987,14 +795,6 @@ class Wkl:
             >>> wkls.overture_version()
             '2025-12-17.0'
         """
-        global _current_overture_version
-
-        if self.chain:
-            raise ValueError(
-                "configure() is only available at the root level. "
-                "Use wkls.configure(), not wkls.us.configure()."
-            )
-
         available = _list_s3_releases()
         if overture_version not in available:
             raise ValueError(
@@ -1003,12 +803,14 @@ class Wkl:
                 "Use wkls.overture_releases() to list all available versions."
             )
 
+        _bootstrap._current_overture_version = overture_version
+        global _current_overture_version
         _current_overture_version = overture_version
-        _country_info.clear()
-        _region_info.clear()
-        _dir_cache.clear()
-        _row_info.clear()
-        _seed_country_info()
+        _bootstrap._country_info.clear()
+        _bootstrap._region_info.clear()
+        _bootstrap._dir_cache.clear()
+        _bootstrap._row_info.clear()
+        _bootstrap._seed_country_info(_bootstrap.sedona)
         _ensure_overture_loaded(force=True)
 
     def __getattr__(self, attr: str) -> Wkl:
@@ -1139,19 +941,21 @@ class Wkl:
     def _dir_countries(self) -> list[str]:
         """Return cached country-level dir entries (ISO codes + names)."""
         key: tuple[str, ...] = ()
-        if key not in _dir_cache:
-            _dir_cache[key] = self._collect_dir_entries(
-                sedona.sql(queries.DIR_COUNTRIES)
+        if key not in _bootstrap._dir_cache:
+            _bootstrap._dir_cache[key] = self._collect_dir_entries(
+                _bootstrap.sedona.sql(queries.DIR_COUNTRIES)
             )
-        return _dir_cache[key]
+        return _bootstrap._dir_cache[key]
 
     def _dir_regions(self) -> list[str]:
         """Return cached region-level dir entries (ISO suffixes + names)."""
         key: tuple[str, ...] = (self._country_iso,)
-        if key not in _dir_cache:
-            df = sedona.sql(queries.DIR_REGIONS, params={"country": self._country_iso})
-            _dir_cache[key] = self._collect_dir_entries(df)
-        return _dir_cache[key]
+        if key not in _bootstrap._dir_cache:
+            df = _bootstrap.sedona.sql(
+                queries.DIR_REGIONS, params={"country": self._country_iso}
+            )
+            _bootstrap._dir_cache[key] = self._collect_dir_entries(df)
+        return _bootstrap._dir_cache[key]
 
     @staticmethod
     def _collect_dir_entries(df: sedonadb.dataframe.DataFrame) -> list[str]:
@@ -1334,15 +1138,7 @@ class Wkl:
         header = self._repr_header()
 
         if self.chain:
-            # Detect empty result by scanning the repr for the "header
-            # separator immediately followed by footer" pattern that
-            # SedonaDB uses for zero-row tables. Avoids an extra count() call.
-            is_empty = False
-            lines = base_repr.strip().split("\n")
-            for i, line in enumerate(lines[:-1]):
-                if line.startswith("╞") and lines[i + 1].startswith("└"):
-                    is_empty = True
-                    break
+            is_empty = self._resolve().count() == 0
             if is_empty:
                 suggestions = self._get_suggestions(self.chain[-1])
                 hint = _build_error_hint(self.chain, suggestions) + "\n"
@@ -1386,7 +1182,7 @@ class Wkl:
         try:
             df = self._df if self._df is not None else self._resolve()
             df.to_view("_wkls_repr_subtypes", overwrite=True)
-            tbl = sedona.sql(
+            tbl = _bootstrap.sedona.sql(
                 "SELECT subtype, COUNT(*) AS n FROM _wkls_repr_subtypes "
                 "GROUP BY subtype ORDER BY n DESC"
             ).to_arrow_table()
@@ -1469,7 +1265,7 @@ class Wkl:
 
         query, params = self._build_query()
         sql = query.format(table="wkls", columns="*")
-        self._df = sedona.sql(sql, params=params)
+        self._df = _bootstrap.sedona.sql(sql, params=params)
         return self._df
 
     def _get_suggestions(
@@ -1530,7 +1326,7 @@ class Wkl:
             }
             use_distance_filter = True
 
-        result = sedona.sql(query, params=params)
+        result = _bootstrap.sedona.sql(query, params=params)
 
         table = result.to_arrow_table()
         if table.num_rows == 0:
@@ -1551,136 +1347,6 @@ class Wkl:
             table.column("chainable_name")[i].as_py()
             for i in range(min(table.num_rows, n))
         ]
-
-    def _get_geom_expr(self, expr: str) -> Any:
-        """Retrieve geometry using a SQL expression.
-
-        Resolves the location chain against the local metadata table, then
-        queries the remote Overture GeoParquet. Two separate queries beat
-        one ``(id = X OR names.primary = Y)`` query because ``OR`` over a
-        nested struct field defeats predicate pushdown in DataFusion /
-        SedonaDB — the engine has to scan. Splitting gives the id path
-        clean pushdown on a top-level unique column.
-
-        Path 1 (almost always): ``WHERE … AND id = '<gers_id>'``. ``id``
-        is globally unique, so this returns the single matching row.
-
-        Path 2 (only if path 1 returns 0 rows — city-tier only): fallback
-        to ``WHERE … AND names.primary = '<name>'``. Handles the rare
-        case of GERS id drift across Overture releases. is_land stays in
-        the filter here because a name like "San Francisco" can match
-        both land and territorial-water rows; we want the land one.
-
-        Args:
-            expr: SQL expression to apply to the geometry column.
-
-        Returns:
-            Result of the geometry expression (type depends on expression).
-
-        Raises:
-            ValueError: If no results found or no geometry exists.
-            AmbiguousLocationError: If the resolved DataFrame has >1 row.
-            ConnectionError: If the remote Overture data can't be
-                registered (first geometry call only; requires S3 access).
-        """
-        _ensure_overture_loaded()
-        df = self._resolve()
-        row_count = df.count()
-        if row_count == 0:
-            # Chain-mode empty: fall back to the "Did you mean?" hint.
-            if self.chain:
-                suggestions = self._get_suggestions(self.chain[-1])
-                hint = _build_error_hint(self.chain, suggestions)
-                raise ValueError(hint.strip())
-            raise ValueError("No rows to resolve into a geometry.")
-
-        if row_count > 1:
-            raise AmbiguousLocationError(self._ambiguity_message(df))
-
-        row = df.head(1).to_arrow_table()
-        gers_id = row.column("id")[0].as_py()
-        country = row.column("country")[0].as_py()
-        region = row.column("region")[0].as_py()
-        subtype = row.column("subtype")[0].as_py()
-        name_primary = row.column("name_primary")[0].as_py()
-
-        base_conditions = [
-            "country = $country",
-            "subtype = $subtype",
-            "is_land = true",
-        ]
-        base_params: dict[str, str] = {"country": country, "subtype": subtype}
-        if region:
-            base_conditions.append("region = $region")
-            base_params["region"] = region
-
-        def _fetch(extra_clause: str, extra_params: dict[str, str]) -> Any | None:
-            clauses = " AND ".join(base_conditions + [extra_clause])
-            tbl = sedona.sql(
-                f"SELECT {expr} FROM overture WHERE {clauses} LIMIT 1",
-                params={**base_params, **extra_params},
-            ).to_arrow_table()
-            if tbl.num_rows == 0:
-                return None
-            return tbl.column(0)[0].as_py()
-
-        # Path 1: id match (the common case).
-        result = _fetch("id = $id", {"id": gers_id})
-        if result is not None:
-            return result
-
-        # Path 2: id drifted — only city-tier subtypes use names.primary
-        # as a secondary key. Country/region/dependency are unique by
-        # country+region+subtype, so no fallback possible or needed there.
-        if subtype in ("county", "locality", "localadmin"):
-            result = _fetch(
-                "names.primary = $name_primary", {"name_primary": name_primary}
-            )
-            if result is not None:
-                return result
-
-        chain_str = ".".join(self.chain)
-        raise ValueError(
-            f"No geometry found for: {chain_str} "
-            f"(country={country}, region={region}, subtype={subtype}, "
-            f"id={gers_id}, name={name_primary})"
-        )
-
-    def wkt(self) -> str:
-        """Get Well-Known Text (WKT) geometry for the first result.
-
-        Returns:
-            WKT string representation of the geometry.
-
-        Raises:
-            ValueError: If no results found for the location chain.
-            AmbiguousLocationError: If the chain matches multiple rows.
-        """
-        return self._get_geom_expr("ST_AsText(geometry)")
-
-    def wkb(self) -> bytes:
-        """Get Well-Known Binary (WKB) geometry for the first result.
-
-        Returns:
-            Binary WKB representation of the geometry.
-
-        Raises:
-            ValueError: If no results found for the location chain.
-            AmbiguousLocationError: If the chain matches multiple rows.
-        """
-        return self._get_geom_expr("ST_AsWKB(geometry)")
-
-    def geojson(self) -> str:
-        """Get GeoJSON geometry for the first result.
-
-        Returns:
-            GeoJSON string representation of the geometry.
-
-        Raises:
-            ValueError: If no results found for the location chain.
-            AmbiguousLocationError: If the chain matches multiple rows.
-        """
-        return self._get_geom_expr("ST_AsGeoJSON(geometry)")
 
     def to_dicts(self) -> list[dict[str, Any]]:
         """Return rows as plain dicts — metadata only, never geometry.
@@ -1747,7 +1413,7 @@ class Wkl:
         query, params = self._build_query()
         sql = query.format(table="overture", columns=queries.GEOMETRY_COLUMNS)
 
-        df = sedona.sql(sql, params=params)
+        df = _bootstrap.sedona.sql(sql, params=params)
         tbl = df.to_arrow_table()
 
         return self._apply_geoarrow_encoding(tbl)
@@ -1764,7 +1430,7 @@ class Wkl:
         if ids:
             placeholders = ", ".join(f"$id_{i}" for i in range(len(ids)))
             id_params = {f"id_{i}": v for i, v in enumerate(ids)}
-            geom_df = sedona.sql(
+            geom_df = _bootstrap.sedona.sql(
                 "SELECT id, ST_AsBinary(geometry) AS geometry "
                 f"FROM overture WHERE id IN ({placeholders})",
                 params=id_params,
@@ -1848,7 +1514,7 @@ class Wkl:
         Returns:
             A result-mode ``Wkl`` wrapping the matching rows.
         """
-        return self._list_top_level_subtype("dependency")
+        return self._list_top_level_subtype("('dependency')")
 
     def countries(self) -> Wkl:
         """List countries in scope.
@@ -1864,43 +1530,7 @@ class Wkl:
         Returns:
             A result-mode ``Wkl`` wrapping the matching rows.
         """
-        return self._list_top_level_subtype("country")
-
-    def _list_top_level_subtype(self, subtype: str) -> Wkl:
-        """Shared implementation for ``countries()`` / ``dependencies()``.
-
-        Both list a top-level subtype. Behavior by mode:
-
-        - **Result-mode** (empty chain, cached DataFrame): filter the
-          prior rows to those with the requested subtype.
-        - **Root** (empty chain, no DataFrame): every row of that
-          subtype worldwide.
-        - **Chain-mode**: filter by the current country so the result
-          is bound to the chain's scope (one row for the matching
-          country / dependency, or empty otherwise).
-        """
-        if not self.chain and self._df is not None:
-            return self._narrow_result_mode_by_subtypes(f"('{subtype}')")
-
-        if not self.chain:
-            query = """
-                SELECT DISTINCT id, country, subtype, name_primary, name_en
-                FROM wkls
-                WHERE subtype = $subtype
-            """
-            return Wkl(_df=sedona.sql(query, params={"subtype": subtype}))
-
-        query = """
-            SELECT DISTINCT id, country, subtype, name_primary, name_en
-            FROM wkls
-            WHERE subtype = $subtype
-              AND country = $country
-        """
-        return Wkl(
-            _df=sedona.sql(
-                query, params={"subtype": subtype, "country": self._country_iso}
-            )
-        )
+        return self._list_top_level_subtype("('country')")
 
     def regions(self) -> Wkl:
         """List regions in the current chain scope.
@@ -1936,7 +1566,38 @@ class Wkl:
         assert self._df is not None and not self.chain
         self._df.to_view("_wkls_list_within", overwrite=True)
         sql = f"SELECT * FROM _wkls_list_within WHERE subtype IN {subtype_filter}"
-        return Wkl(_df=sedona.sql(sql))
+        return Wkl(_df=_bootstrap.sedona.sql(sql))
+
+    def _list_top_level_subtype(self, subtype_filter: str) -> Wkl:
+        """List country/dependency rows scoped at most to the country level.
+
+        Unlike ``_list_subtype``, this never scopes below country level —
+        country and dependency rows don't carry region data, so region-
+        or parent-scoped queries would always return empty.
+
+        Args:
+            subtype_filter: SQL subtype filter, e.g. ``"('country')"``.
+
+        Returns:
+            A result-mode ``Wkl`` wrapping the matching rows.
+        """
+        # Result-mode: narrow within the cached DataFrame.
+        if not self.chain and self._df is not None:
+            return self._narrow_result_mode_by_subtypes(subtype_filter)
+
+        if not self.chain:
+            query = f"SELECT * FROM wkls WHERE subtype IN {subtype_filter}"
+            return Wkl(_df=_bootstrap.sedona.sql(query))
+
+        # Any chain depth: scope to the country.
+        query = f"""
+            SELECT * FROM wkls
+            WHERE country = $country
+              AND subtype IN {subtype_filter}
+        """
+        return Wkl(
+            _df=_bootstrap.sedona.sql(query, params={"country": self._country_iso})
+        )
 
     def _list_subtype(self, subtype_filter: str, method_name: str) -> Wkl:
         """List rows of the given subtype within the current scope.
@@ -1972,7 +1633,7 @@ class Wkl:
 
         if depth == 0:
             query = f"SELECT * FROM wkls WHERE subtype IN {subtype_filter}"
-            return Wkl(_df=sedona.sql(query))
+            return Wkl(_df=_bootstrap.sedona.sql(query))
 
         if depth == 1 or not self._has_region:
             # Country-scoped: depth 1, or depth 2 on a no-region country
@@ -1982,7 +1643,9 @@ class Wkl:
                 WHERE country = $country
                   AND subtype IN {subtype_filter}
             """
-            return Wkl(_df=sedona.sql(query, params={"country": self._country_iso}))
+            return Wkl(
+                _df=_bootstrap.sedona.sql(query, params={"country": self._country_iso})
+            )
 
         if depth == 2:
             # Region-scoped.
@@ -1993,7 +1656,7 @@ class Wkl:
                   AND subtype IN {subtype_filter}
             """
             return Wkl(
-                _df=sedona.sql(
+                _df=_bootstrap.sedona.sql(
                     query,
                     params={
                         "country": self._country_iso,
@@ -2022,7 +1685,7 @@ class Wkl:
             WHERE (id = $row_id OR parent_id = $row_id)
               AND subtype IN {subtype_filter}
         """
-        return Wkl(_df=sedona.sql(query, params={"row_id": row_id}))
+        return Wkl(_df=_bootstrap.sedona.sql(query, params={"row_id": row_id}))
 
     def counties(self) -> Wkl:
         """List counties in the current chain scope.
@@ -2076,19 +1739,25 @@ class Wkl:
         # Result-mode: narrow within the cached DataFrame.
         if not self.chain and self._df is not None:
             self._df.to_view("_wkls_list_within", overwrite=True)
-            return Wkl(_df=sedona.sql("SELECT DISTINCT subtype FROM _wkls_list_within"))
+            return Wkl(
+                _df=_bootstrap.sedona.sql(
+                    "SELECT DISTINCT subtype FROM _wkls_list_within"
+                )
+            )
 
         depth = len(self.chain)
 
         if depth == 0:
-            return Wkl(_df=sedona.sql("SELECT DISTINCT subtype FROM wkls"))
+            return Wkl(_df=_bootstrap.sedona.sql("SELECT DISTINCT subtype FROM wkls"))
 
         if depth == 1 or not self._has_region:
             query = """
                 SELECT DISTINCT subtype FROM wkls
                 WHERE country = $country
             """
-            return Wkl(_df=sedona.sql(query, params={"country": self._country_iso}))
+            return Wkl(
+                _df=_bootstrap.sedona.sql(query, params={"country": self._country_iso})
+            )
 
         if depth == 2:
             query = """
@@ -2096,7 +1765,7 @@ class Wkl:
                 WHERE country = $country AND region = $region
             """
             return Wkl(
-                _df=sedona.sql(
+                _df=_bootstrap.sedona.sql(
                     query,
                     params={
                         "country": self._country_iso,
@@ -2119,7 +1788,7 @@ class Wkl:
             SELECT DISTINCT subtype FROM wkls
             WHERE id = $row_id OR parent_id = $row_id
         """
-        return Wkl(_df=sedona.sql(query, params={"row_id": row_id}))
+        return Wkl(_df=_bootstrap.sedona.sql(query, params={"row_id": row_id}))
 
     def search(self, query: str) -> Wkl:
         """Search for locations whose names contain a substring.
@@ -2178,16 +1847,20 @@ class Wkl:
             view_name = "_wkls_search_within"
             self._df.to_view(view_name, overwrite=True)
             sql = queries.SEARCH_WITHIN_VIEW.format(view_name=view_name)
-            return Wkl(_df=sedona.sql(sql, params={"query": normalized_query}))
+            return Wkl(
+                _df=_bootstrap.sedona.sql(sql, params={"query": normalized_query})
+            )
 
         if depth == 0:
             return Wkl(
-                _df=sedona.sql(queries.SEARCH_ROOT, params={"query": normalized_query})
+                _df=_bootstrap.sedona.sql(
+                    queries.SEARCH_ROOT, params={"query": normalized_query}
+                )
             )
         elif depth == 1 or not self._has_region:
             # Depth 1, or depth 2 on a country that doesn't use regions.
             return Wkl(
-                _df=sedona.sql(
+                _df=_bootstrap.sedona.sql(
                     queries.SEARCH_COUNTRY,
                     params={
                         "country": self._country_iso,
@@ -2197,7 +1870,7 @@ class Wkl:
             )
         else:  # depth == 2 with regions
             return Wkl(
-                _df=sedona.sql(
+                _df=_bootstrap.sedona.sql(
                     queries.SEARCH_REGION,
                     params={
                         "country": self._country_iso,
@@ -2218,4 +1891,4 @@ def _wkl_from_arrow_slice(table: pa.Table) -> Wkl:
     ``sedona.create_data_frame`` so the returned ``Wkl`` has a proper
     ``_df`` for downstream ``.wkt()`` / ``.path`` / ``.parent`` calls.
     """
-    return Wkl(_df=sedona.create_data_frame(table))
+    return Wkl(_df=_bootstrap.sedona.create_data_frame(table))
