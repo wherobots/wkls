@@ -22,20 +22,20 @@ COUNTRY_DEPENDENCY = """
     SELECT {columns} FROM {table}
     WHERE subtype IN ('country', 'dependency')
       AND (
-        country ILIKE '{country}'
-        OR REPLACE(name_en, ' ', '') ILIKE REPLACE('{country}', ' ', '')
-        OR REPLACE(name_primary, ' ', '') ILIKE REPLACE('{country}', ' ', '')
+        country ILIKE $country
+        OR REPLACE(name_en, ' ', '') ILIKE REPLACE($country, ' ', '')
+        OR REPLACE(name_primary, ' ', '') ILIKE REPLACE($country, ' ', '')
       )
 """
 
 REGION = """
     SELECT {columns} FROM {table}
-    WHERE country ILIKE '{country}'
+    WHERE country ILIKE $country
       AND subtype = 'region'
       AND (
-        region ILIKE '{region}'
-        OR REPLACE(name_en, ' ', '') ILIKE REPLACE('{region_name}', ' ', '')
-        OR REPLACE(name_primary, ' ', '') ILIKE REPLACE('{region_name}', ' ', '')
+        region ILIKE $region
+        OR REPLACE(name_en, ' ', '') ILIKE REPLACE($region_name, ' ', '')
+        OR REPLACE(name_primary, ' ', '') ILIKE REPLACE($region_name, ' ', '')
       )
 """
 
@@ -44,16 +44,16 @@ COUNTRY_LOOKUP = """
     FROM wkls
     WHERE subtype IN ('country', 'dependency')
       AND (
-        country ILIKE '{identifier}'
-        OR REPLACE(name_en, ' ', '') ILIKE REPLACE('{identifier}', ' ', '')
-        OR REPLACE(name_primary, ' ', '') ILIKE REPLACE('{identifier}', ' ', '')
+        country ILIKE $identifier
+        OR REPLACE(name_en, ' ', '') ILIKE REPLACE($identifier, ' ', '')
+        OR REPLACE(name_primary, ' ', '') ILIKE REPLACE($identifier, ' ', '')
       )
     LIMIT 1
 """
 
 COUNTRY_HAS_REGIONS = """
     SELECT * FROM wkls
-    WHERE country = '{country}'
+    WHERE country = $country
       AND subtype = 'region'
       LIMIT 1
 """
@@ -61,12 +61,12 @@ COUNTRY_HAS_REGIONS = """
 REGION_LOOKUP = """
     SELECT DISTINCT region AS iso
     FROM wkls
-    WHERE country = '{country}'
+    WHERE country = $country
       AND subtype = 'region'
       AND (
-        region ILIKE '{identifier}'
-        OR REPLACE(name_en, ' ', '') ILIKE REPLACE('{name}', ' ', '')
-        OR REPLACE(name_primary, ' ', '') ILIKE REPLACE('{name}', ' ', '')
+        region ILIKE $identifier
+        OR REPLACE(name_en, ' ', '') ILIKE REPLACE($name, ' ', '')
+        OR REPLACE(name_primary, ' ', '') ILIKE REPLACE($name, ' ', '')
       )
     LIMIT 1
 """
@@ -74,7 +74,7 @@ REGION_LOOKUP = """
 ROW_BY_ID = """
     SELECT id, country, region, subtype, name_primary, name_en, parent_id
     FROM wkls
-    WHERE id = '{row_id}'
+    WHERE id = $row_id
     LIMIT 1
 """
 
@@ -83,33 +83,33 @@ ROW_BY_ID = """
 # another row's ``id`` within the bundled metadata.
 CHILDREN_BY_PARENT = """
     SELECT {columns} FROM {table}
-    WHERE parent_id = '{parent_id}'
+    WHERE parent_id = $parent_id
       AND (
-        REPLACE(name_primary, ' ', '') ILIKE REPLACE('{name}', ' ', '')
-        OR REPLACE(name_en, ' ', '') ILIKE REPLACE('{name}', ' ', '')
+        REPLACE(name_primary, ' ', '') ILIKE REPLACE($name, ' ', '')
+        OR REPLACE(name_en, ' ', '') ILIKE REPLACE($name, ' ', '')
       )
 """
 
 CITY = """
     SELECT {columns} FROM {table}
-    WHERE country ILIKE '{country}'
-      AND region ILIKE '{region}'
+    WHERE country ILIKE $country
+      AND region ILIKE $region
       AND subtype IN ('county', 'locality', 'localadmin')
       AND (
-        REPLACE(name_primary, ' ', '') ILIKE REPLACE('{city}', ' ', '')
+        REPLACE(name_primary, ' ', '') ILIKE REPLACE($city, ' ', '')
         OR
-        REPLACE(name_en, ' ', '') ILIKE REPLACE('{city}', ' ', '')
+        REPLACE(name_en, ' ', '') ILIKE REPLACE($city, ' ', '')
     )
 """
 
 CITY_NO_REGION = """
     SELECT {columns} FROM {table}
-    WHERE country ILIKE '{country}'
+    WHERE country ILIKE $country
       AND subtype IN ('county', 'locality', 'localadmin')
       AND (
-        REPLACE(name_primary, ' ', '') ILIKE REPLACE('{city}', ' ', '')
+        REPLACE(name_primary, ' ', '') ILIKE REPLACE($city, ' ', '')
         OR
-        REPLACE(name_en, ' ', '') ILIKE REPLACE('{city}', ' ', '')
+        REPLACE(name_en, ' ', '') ILIKE REPLACE($city, ' ', '')
     )
 """
 
@@ -117,7 +117,7 @@ CITY_NO_REGION = """
 
 REGIONS_LIST = """
     SELECT * FROM wkls
-    WHERE country = '{country}'
+    WHERE country = $country
       AND subtype = 'region'
 """
 
@@ -139,14 +139,14 @@ SUBTYPES_LIST = """
 
 SUBDIVISIONS = """
     SELECT * FROM wkls
-    WHERE country = '{country}'
-      AND region = '{region}'
+    WHERE country = $country
+      AND region = $region
       AND subtype IN {subtype_filter}
 """
 
 SUBDIVISIONS_NO_REGION = """
     SELECT * FROM wkls
-    WHERE country = '{country}'
+    WHERE country = $country
       AND subtype IN {subtype_filter}
 """
 
@@ -158,8 +158,8 @@ SUGGEST_COUNTRY = """
     FROM wkls
     WHERE subtype = 'country'
       AND (
-        LOWER(country) LIKE '{search_term}%'
-        OR '{search_term}' LIKE LOWER(country) || '%'
+        LOWER(country) LIKE $search_term || '%'
+        OR $search_term LIKE LOWER(country) || '%'
       )
     ORDER BY chainable_name ASC
     LIMIT {limit}
@@ -169,11 +169,11 @@ SUGGEST_COUNTRY = """
 SUGGEST_REGION = """
     SELECT DISTINCT LOWER(SPLIT_PART(region, '-', 2)) as chainable_name
     FROM wkls
-    WHERE country = '{country}'
+    WHERE country = $country
       AND subtype = 'region'
       AND (
-        LOWER(SPLIT_PART(region, '-', 2)) LIKE '{search_term}%'
-        OR '{search_term}' LIKE LOWER(SPLIT_PART(region, '-', 2)) || '%'
+        LOWER(SPLIT_PART(region, '-', 2)) LIKE $search_term || '%'
+        OR $search_term LIKE LOWER(SPLIT_PART(region, '-', 2)) || '%'
       )
     ORDER BY chainable_name ASC
     LIMIT {limit}
@@ -222,7 +222,7 @@ DIR_REGIONS = f"""
       LOWER(SPLIT_PART(region, '-', 2)) AS iso,
       {_CHAINABLE_NAME_EXPR}            AS name
     FROM wkls
-    WHERE country = '{{country}}'
+    WHERE country = $country
       AND subtype = 'region'
 """
 
@@ -235,8 +235,8 @@ DIR_REGIONS = f"""
 # (e.g. ``search("sanfrancisco")`` finds "San Francisco"). The query is
 # pre-normalized in Python before substitution.
 _SEARCH_NAME_MATCH = (
-    "LOWER(REGEXP_REPLACE(name_primary, '[^a-zA-Z0-9]', '', 'g')) LIKE '%{query}%'\n"
-    "      OR LOWER(REGEXP_REPLACE(name_en, '[^a-zA-Z0-9]', '', 'g')) LIKE '%{query}%'"
+    "LOWER(REGEXP_REPLACE(name_primary, '[^a-zA-Z0-9]', '', 'g')) LIKE '%' || $query || '%'\n"
+    "      OR LOWER(REGEXP_REPLACE(name_en, '[^a-zA-Z0-9]', '', 'g')) LIKE '%' || $query || '%'"
 )
 
 SEARCH_ROOT = f"""
@@ -249,7 +249,7 @@ SEARCH_ROOT = f"""
 SEARCH_COUNTRY = f"""
     SELECT DISTINCT id, country, region, subtype, name_primary, name_en, parent_id
     FROM wkls
-    WHERE country = '{{country}}'
+    WHERE country = $country
       AND (
         {_SEARCH_NAME_MATCH}
       )
@@ -259,8 +259,8 @@ SEARCH_COUNTRY = f"""
 SEARCH_REGION = f"""
     SELECT DISTINCT id, country, region, subtype, name_primary, name_en, parent_id
     FROM wkls
-    WHERE country = '{{country}}'
-      AND region = '{{region}}'
+    WHERE country = $country
+      AND region = $region
       AND (
         {_SEARCH_NAME_MATCH}
       )
@@ -278,18 +278,18 @@ SEARCH_WITHIN_VIEW = f"""
 """
 
 # For city-level suggestions (Levenshtein fuzzy matching)
-# Use {region_filter} = "AND region = '{region}'" or "" for countries without regions
+# Use {region_filter} = "AND region = $region" or "" for countries without regions
 SUGGEST_CITY = f"""
     SELECT DISTINCT
            {_CHAINABLE_NAME_EXPR} as chainable_name,
            CASE
-             WHEN {_CHAINABLE_NAME_EXPR} = '{{search_term}}' THEN 0
-             WHEN {_CHAINABLE_NAME_EXPR} LIKE '{{search_term}}%' THEN 1
-             WHEN {_CHAINABLE_NAME_EXPR} LIKE '%{{search_term}}%' THEN 2
-             ELSE levenshtein({_CHAINABLE_NAME_EXPR}, '{{search_term}}') + 10
+             WHEN {_CHAINABLE_NAME_EXPR} = $search_term THEN 0
+             WHEN {_CHAINABLE_NAME_EXPR} LIKE $search_term || '%' THEN 1
+             WHEN {_CHAINABLE_NAME_EXPR} LIKE '%' || $search_term || '%' THEN 2
+             ELSE levenshtein({_CHAINABLE_NAME_EXPR}, $search_term) + 10
            END as distance
     FROM wkls
-    WHERE country = '{{country}}'
+    WHERE country = $country
       {{region_filter}}
       AND subtype IN ('county', 'locality', 'localadmin')
     ORDER BY distance ASC, chainable_name ASC
