@@ -221,21 +221,24 @@ def _seed_country_info() -> None:
 sedona = _initialize_table()
 
 
-def _ensure_overture_loaded() -> None:
+def _ensure_overture_loaded(*, force: bool = False) -> None:
     """Register the remote Overture GeoParquet view on first geometry access.
 
     Resolves the active Overture version (via ``WKLS_OVERTURE_VERSION``,
     module-level cache, or an S3 listing), then registers the remote
     GeoParquet as the ``overture`` SedonaDB view. Idempotent — later
-    calls short-circuit on ``_overture_view_loaded``. ``configure()``
-    sets the flag too, so a user-driven reload keeps the fast path.
+    calls short-circuit on ``_overture_view_loaded`` unless *force* is
+    set (used by ``configure()`` to reload after a version change).
+
+    Args:
+        force: If True, reload the view even if already loaded.
 
     Raises:
         ConnectionError: If the S3 listing or parquet read fails. The
             message points at the network requirement.
     """
     global _current_overture_version, _overture_view_loaded
-    if _overture_view_loaded:
+    if _overture_view_loaded and not force:
         return
     if _current_overture_version is None:
         _current_overture_version = _resolve_overture_version()
@@ -994,7 +997,7 @@ class Wkl:
             >>> wkls.overture_version()
             '2025-12-17.0'
         """
-        global _current_overture_version, _overture_view_loaded
+        global _current_overture_version
 
         if self.chain:
             raise ValueError(
@@ -1016,14 +1019,7 @@ class Wkl:
         _dir_cache.clear()
         _row_info.clear()
         _seed_country_info()
-        sedona.read_parquet(
-            _overture_uri(overture_version),
-            options={
-                "aws.skip_signature": True,
-                "aws.region": "us-west-2",
-            },
-        ).to_view("overture", overwrite=True)
-        _overture_view_loaded = True
+        _ensure_overture_loaded(force=True)
 
     def __getattr__(self, attr: str) -> Wkl:
         """Handle attribute access — chain drill or redirect.
