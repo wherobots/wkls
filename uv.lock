@@ -350,15 +350,6 @@ wheels = [
 ]
 
 [[package]]
-name = "sqlescapy"
-version = "1.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/43/bb/d5077ee1599474af84393bc000212d2aa29e846e10044c4a5eb0813f2339/sqlescapy-1.0.1.tar.gz", hash = "sha256:281c27266e9f6934a7728a7272b2299bce395d0aeb12a314641add1ffd7e0872", size = 1520 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/6a/bd5df7aeed348a0ac9d2d0417128ed82af6291bd76afb16254379a55ad3f/sqlescapy-1.0.1-py3-none-any.whl", hash = "sha256:3a50b4b1eb8971b51a3c097c37cd58921a8f9e296619534aed515116356f5fbf", size = 2792 },
-]
-
-[[package]]
 name = "tomli"
 version = "2.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -415,7 +406,6 @@ dependencies = [
     { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pyarrow", version = "23.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "sedonadb" },
-    { name = "sqlescapy" },
 ]
 
 [package.dev-dependencies]
@@ -429,7 +419,6 @@ requires-dist = [
     { name = "geoarrow-pyarrow", specifier = ">=0.2.0" },
     { name = "pyarrow", specifier = ">=14.0.0" },
     { name = "sedonadb", specifier = ">=0.3.0" },
-    { name = "sqlescapy", specifier = ">=1.0.1" },
 ]
 
 [package.metadata.requires-dev]
