@@ -26,7 +26,7 @@ import time
 from statistics import median
 
 import wkls
-from wkls import core
+from wkls import _bootstrap, core
 
 WARM_REPS = 5
 GEOM_REPS = 3
@@ -89,7 +89,7 @@ def reset_caches() -> None:
     core._row_info.clear()
     # `_country_info` is seeded at module import, so real post-import state
     # starts with it populated — re-seed to match what cold users actually see.
-    core._seed_country_info()
+    _bootstrap._seed_country_info(_bootstrap.sedona)
 
 
 def time_once(code: str, sf_id: str) -> float:
