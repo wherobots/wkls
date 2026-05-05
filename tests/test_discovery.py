@@ -102,6 +102,8 @@ def test_dir_region_level_methods_only():
         "parent",
         "path",
         "search",
+        "to_arrow_table",
+        "to_dicts",
         "wkb",
         "wkt",
     }
@@ -110,7 +112,17 @@ def test_dir_region_level_methods_only():
 def test_dir_city_level_exposes_geometry_and_navigation():
     """dir on a resolved city returns geometry methods + hierarchy navigation."""
     entries = dir(wkls.us.ca.sanfrancisco)
-    assert set(entries) == {"geojson", "parent", "path", "wkb", "wkt"}
+    assert set(entries) == {
+        "cities",
+        "geojson",
+        "parent",
+        "path",
+        "search",
+        "to_arrow_table",
+        "to_dicts",
+        "wkb",
+        "wkt",
+    }
 
 
 def test_dir_country_level_has_path_but_not_parent():
@@ -239,10 +251,10 @@ def test_search_no_region_country():
     assert df is not None
 
 
-def test_search_too_deep_raises():
-    """search() past city level raises ValueError."""
-    with pytest.raises(ValueError, match="past city level"):
-        wkls.us.ca.sanfrancisco.search("foo")
+def test_search_at_depth_3_works():
+    """search() works at county/city level (depth > 2)."""
+    result = wkls.us.pa.yorkcounty.search("franklin")
+    assert len(result) >= 1
 
 
 def test_search_normalizes_query_to_dot_access_form():
