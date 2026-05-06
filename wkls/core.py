@@ -102,6 +102,8 @@ _DIR_COUNTRY_METHODS = frozenset(
         "path",
         "regions",
         "search",
+        "to_arrow_table",
+        "to_dicts",
         "wkb",
         "wkt",
     }
@@ -114,11 +116,25 @@ _DIR_REGION_METHODS = frozenset(
         "parent",
         "path",
         "search",
+        "to_arrow_table",
+        "to_dicts",
         "wkb",
         "wkt",
     }
 )
-_DIR_CITY_METHODS = frozenset({"geojson", "parent", "path", "wkb", "wkt"})
+_DIR_CITY_METHODS = frozenset(
+    {
+        "cities",
+        "geojson",
+        "parent",
+        "path",
+        "search",
+        "to_arrow_table",
+        "to_dicts",
+        "wkb",
+        "wkt",
+    }
+)
 
 # Result-mode: DataFrame passthroughs that make sense to surface on a
 # Redirect tables — priority: S1 > S2 > S3.
@@ -1134,11 +1150,20 @@ class Wkl(_GeometryMixin):
         if not self.chain and self._df is None:
             return "Wkl(root)"
 
-        base_repr = repr(self._resolve())
+        df = self._resolve()
+        # Drop parent_id from repr — it's a raw UUID that adds noise.
+        # Users who need it can call .to_dicts() or .to_arrow_table().
+        cols = [c for c in df.columns if c != "parent_id"]
+        col_list = ", ".join(cols)
+        view_name = "_wkls_repr_tmp"
+        df.to_view(view_name, overwrite=True)
+        display_df = _bootstrap.sedona.sql(f"SELECT {col_list} FROM {view_name}")
+        # Use wider width to avoid truncating UUID columns.
+        base_repr = display_df._impl.show(display_df._ctx, 10, 200, ascii=False).strip()
         header = self._repr_header()
 
         if self.chain:
-            is_empty = self._resolve().count() == 0
+            is_empty = df.count() == 0
             if is_empty:
                 suggestions = self._get_suggestions(self.chain[-1])
                 hint = _build_error_hint(self.chain, suggestions) + "\n"
@@ -1819,9 +1844,6 @@ class Wkl(_GeometryMixin):
         Returns:
             A result-mode ``Wkl`` of matching rows.
 
-        Raises:
-            ValueError: If called past city level (chain depth > 2).
-
         Examples:
             >>> import wkls
             >>> wkls.search("san francisco")              # full dataset
@@ -1830,22 +1852,23 @@ class Wkl(_GeometryMixin):
             >>> wkls.us.ca.search("san").search("fran")   # narrow within
         """
         depth = len(self.chain)
-        if depth > 2:
-            raise ValueError(
-                "search() cannot be called past city level "
-                f"(chain has {depth} elements; max searchable depth is 2)."
-            )
 
         # Normalize to the dot-access form so ``search("sanfrancisco")``
         # and ``search("San Francisco")`` both match "San Francisco".
         normalized_query = _normalize_name(query)
 
-        # Result-mode: narrow within the already-resolved rows. The
-        # previous search/listing call has already scoped the data; a
-        # fresh global scan would ignore that scope entirely.
-        if depth == 0 and self._df is not None:
+        # Depth > 2 or result-mode: resolve to a temp view and search
+        # within it. For chain-mode at depth > 2 (e.g. wkls.us.pa.yorkcounty),
+        # search the county's cities rather than the county row itself.
+        if depth > 2 or (depth == 0 and self._df is not None):
             view_name = "_wkls_search_within"
-            self._df.to_view(view_name, overwrite=True)
+            if self._df is not None:
+                # Result-mode: narrow within existing rows.
+                resolved = self._df
+            else:
+                # Chain-mode depth > 2: search children (cities).
+                resolved = self.cities()._df
+            resolved.to_view(view_name, overwrite=True)
             sql = queries.SEARCH_WITHIN_VIEW.format(view_name=view_name)
             return Wkl(
                 _df=_bootstrap.sedona.sql(sql, params={"query": normalized_query})
