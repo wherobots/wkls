@@ -19,7 +19,7 @@ wkls.us.ca.sanfrancisco.wkt()
 - `.search("query")` at any chain level — scoped to the current subtree
 - Precise geometries from [Overture Maps Foundation](https://overturemaps.org/) — no bounding boxes, no shapefiles
 - Outputs boundaries in WKT, WKB, or GeoJSON
-- Bulk export to `pyarrow.Table` with GeoArrow WKB geometry via `.to_arrow_table()`
+- Bulk export to `pyarrow.Table` with all Overture Maps columns via `.to_arrow_table()`
 - Zero configuration — no API keys, no downloads, no setup
 - Automatically uses the latest Overture Maps release
 
@@ -190,14 +190,17 @@ what's currently available.
 ### Handoff to your engine (`to_arrow_table`)
 
 When you need more than admin-boundary lookup — filtering, joins,
-spatial analysis — escape to a `pyarrow.Table` with full geometry:
+spatial analysis — escape to a `pyarrow.Table` with the full Overture
+Maps schema:
 
 ```python
 tbl = wkls.us.ca.cities().to_arrow_table()
 ```
 
-The table includes all metadata columns plus a `geometry` column typed
-as GeoArrow WKB with `OGC:CRS84` CRS. Hand it to any Arrow-aware engine:
+The table includes all Overture Maps columns (`id`, `country`, `region`,
+`subtype`, `names`, `sources`, `admin_level`, `bbox`, etc.) plus a
+`geometry` column typed as GeoArrow WKB with `OGC:CRS84` CRS. Hand it
+to any Arrow-aware engine:
 
 ```python
 ctx.create_data_frame(tbl)
