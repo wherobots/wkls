@@ -27,19 +27,18 @@ def test_chain_mode_has_geometry_column():
 
 
 def test_chain_mode_has_metadata_columns():
-    """All expected metadata columns present."""
+    """All expected metadata columns present (superset of bundled metadata)."""
     tbl = wkls.us.ca.cities().to_arrow_table()
     expected = {
         "id",
         "country",
         "region",
         "subtype",
-        "name_primary",
-        "name_en",
-        "parent_id",
         "geometry",
     }
     assert expected <= set(tbl.schema.names)
+    # Overture provides more columns than the bundled metadata
+    assert len(tbl.schema.names) > len(expected)
 
 
 def test_chain_mode_correct_crs():

@@ -14,9 +14,9 @@ INITIALIZATION = """
 
 # Column sets for the two query modes.
 # _resolve() queries the local `wkls` table (metadata only).
-# to_arrow_table() queries `overture` (metadata + geometry).
+# to_arrow_table() queries `overture` (all Overture columns + WKB geometry).
 METADATA_COLUMNS = "id, country, region, subtype, name_primary, name_en, parent_id"
-GEOMETRY_COLUMNS = f"{METADATA_COLUMNS}, ST_AsBinary(geometry) AS geometry"
+GEOMETRY_COLUMNS = "* EXCLUDE(geometry), ST_AsBinary(geometry) AS geometry"
 
 COUNTRY_DEPENDENCY = """
     SELECT {columns} FROM {table}
