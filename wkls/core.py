@@ -1433,53 +1433,80 @@ class Wkl(_GeometryMixin):
                 "wkls.<country>.<region>, etc."
             )
 
-        # Build the same query _resolve() would, but against overture
-        # with geometry projection.
-        query, params = self._build_query()
-        sql = query.format(table="overture", columns=queries.GEOMETRY_COLUMNS)
+        # Resolve IDs locally, then fetch full rows from overture
+        # with structural filters for row-group pruning.
+        resolved = self._resolve()
+        meta_tbl = resolved.to_arrow_table()
+        ids = meta_tbl.column("id").to_pylist()
 
-        df = _bootstrap.sedona.sql(sql, params=params)
-        tbl = df.to_arrow_table()
+        if not ids:
+            return self._empty_overture_table()
 
-        return self._apply_geoarrow_encoding(tbl)
+        where, params = self._build_overture_filter(ids)
+        df = _bootstrap.sedona.sql(
+            f"SELECT {queries.GEOMETRY_COLUMNS} FROM overture WHERE {where}",
+            params=params,
+        )
+        return self._apply_geoarrow_encoding(df.to_arrow_table())
 
     def _to_arrow_table_from_df(self) -> pa.Table:
-        """IN-list fallback for result-mode Wkls."""
-        import geoarrow.pyarrow as ga  # noqa: F811
+        """IN-list fallback for result-mode Wkls.
 
+        Result-mode Wkls come from listing/search methods and may span
+        multiple countries/regions, so we can only filter by ID — no
+        structural pruning is possible.
+        """
         _ensure_overture_loaded()
 
         meta_tbl = self._df.to_arrow_table()
         ids = meta_tbl.column("id").to_pylist()
 
-        if ids:
-            placeholders = ", ".join(f"$id_{i}" for i in range(len(ids)))
-            id_params = {f"id_{i}": v for i, v in enumerate(ids)}
-            geom_df = _bootstrap.sedona.sql(
-                "SELECT id, ST_AsBinary(geometry) AS geometry "
-                f"FROM overture WHERE id IN ({placeholders})",
-                params=id_params,
-            )
-            geom_tbl = geom_df.to_arrow_table()
-        else:
-            geom_tbl = pa.table(
-                {
-                    "id": pa.array([], type=meta_tbl.schema.field("id").type),
-                    "geometry": pa.array([], type=pa.binary()),
-                }
-            )
+        if not ids:
+            return self._empty_overture_table()
 
-        # Hash-join in Python (small N, trivial).
-        id_to_wkb: dict = dict(
-            zip(
-                geom_tbl.column("id").to_pylist(),
-                geom_tbl.column("geometry").to_pylist(),
-            )
+        placeholders = ", ".join(f"$id_{i}" for i in range(len(ids)))
+        id_params = {f"id_{i}": v for i, v in enumerate(ids)}
+        df = _bootstrap.sedona.sql(
+            f"SELECT {queries.GEOMETRY_COLUMNS} "
+            f"FROM overture WHERE id IN ({placeholders})",
+            params=id_params,
         )
-        wkb_col = pa.array([id_to_wkb.get(i) for i in ids], type=pa.binary())
-        return self._apply_geoarrow_encoding(
-            meta_tbl.append_column("geometry", ga.with_crs(wkb_col, crs=ga.OGC_CRS84))
-        )
+        return self._apply_geoarrow_encoding(df.to_arrow_table())
+
+    def _build_overture_filter(self, ids: list[str]) -> tuple[str, dict[str, str]]:
+        """Build a WHERE clause for querying the remote Overture table.
+
+        Combines structural filters (country, region) for row-group
+        pruning with an ID IN (...) list for correctness.
+        """
+        clauses: list[str] = []
+        params: dict[str, str] = {}
+
+        country_iso = self._country_iso
+        if country_iso:
+            clauses.append("country = $country")
+            params["country"] = country_iso
+
+        if len(self.chain) >= 2 and self._has_region:
+            region_iso = country_iso + "-" + self.chain[1].upper()
+            clauses.append("region = $region")
+            params["region"] = region_iso
+
+        # Always include ID list for correctness.
+        placeholders = ", ".join(f"$id_{i}" for i in range(len(ids)))
+        for i, v in enumerate(ids):
+            params[f"id_{i}"] = v
+        clauses.append(f"id IN ({placeholders})")
+
+        return " AND ".join(clauses), params
+
+    @staticmethod
+    def _empty_overture_table() -> pa.Table:
+        """Return an empty table with id and GeoArrow geometry columns."""
+        import geoarrow.pyarrow as ga  # noqa: F811
+
+        wkb_col = ga.with_crs(pa.array([], type=pa.binary()), crs=ga.OGC_CRS84)
+        return pa.table({"id": pa.array([], type=pa.string()), "geometry": wkb_col})
 
     @staticmethod
     def _apply_geoarrow_encoding(tbl: pa.Table) -> pa.Table:
