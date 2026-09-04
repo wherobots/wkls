@@ -48,7 +48,7 @@ available, regenerate it:
 
 ```bash
 uv run python scripts/generate_metadata.py              # latest release
-uv run python scripts/generate_metadata.py --version 2026-01-21.0  # specific version
+uv run python scripts/generate_metadata.py --version 2026-08-19.0  # specific version
 uv run python scripts/generate_metadata.py --list       # list available releases
 ```
 

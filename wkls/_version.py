@@ -21,7 +21,7 @@ def _list_s3_releases() -> list[str]:
     CommonPrefixes for each release directory.
 
     Returns:
-        Sorted list of version strings (e.g., ["2025-12-17.0", "2026-01-21.0"]).
+        Sorted list of version strings (e.g., ["2026-07-22.0", "2026-08-19.0"]).
 
     Raises:
         ConnectionError: If the S3 bucket listing request fails.
@@ -44,7 +44,7 @@ def _list_s3_releases() -> list[str]:
     versions = []
     for prefix_elem in root.findall("s3:CommonPrefixes/s3:Prefix", ns):
         prefix = prefix_elem.text or ""
-        # Extract version from "release/2025-12-17.0/"
+        # Extract version from "release/2026-07-22.0/"
         version = prefix.removeprefix(_S3_RELEASE_PREFIX).rstrip("/")
         if version:
             versions.append(version)

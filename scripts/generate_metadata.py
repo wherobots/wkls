@@ -13,7 +13,7 @@ Usage:
     uv run python scripts/generate_metadata.py
 
     # Pin a specific version
-    uv run python scripts/generate_metadata.py --version 2026-01-21.0
+    uv run python scripts/generate_metadata.py --version 2026-08-19.0
 
     # List available releases
     uv run python scripts/generate_metadata.py --list
