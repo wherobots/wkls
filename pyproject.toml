@@ -26,7 +26,11 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "sedonadb>=0.3.0",
+    # <0.4: sedonadb 0.4.x loads GDAL at import time. On hosts with an
+    # Arrow-linked GDAL (Homebrew, conda) that registers a second 'file'
+    # filesystem factory and breaks pyarrow.fs.LocalFileSystem for the rest
+    # of the process (apache/arrow#44696). Lift once sedonadb defers the load.
+    "sedonadb>=0.3.0,<0.4",
     "pyarrow>=14.0.0",
     "geoarrow-pyarrow>=0.2.0",
 ]
