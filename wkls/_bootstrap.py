@@ -47,8 +47,10 @@ def _initialize_table() -> sedonadb.SedonaContext:
     """
     sedona = sedonadb.connect()
 
-    # Enable interactive mode for auto-display
+    # Enable interactive mode for auto-display. Widen the repr beyond the
+    # 100-char/terminal default so UUID columns aren't truncated.
     sedona.options.interactive = True
+    sedona.options.width = 200
 
     # Monkey-patch `.sql()` for debug mode.
     sedona_sql = sedona.sql
