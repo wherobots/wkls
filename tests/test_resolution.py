@@ -12,6 +12,7 @@ DataFrame row, including:
 from __future__ import annotations
 
 import os
+import re
 import types
 
 import pytest
@@ -103,6 +104,16 @@ def test_repr_header_empty_result():
     """Empty result-mode Wkl shows rows=0 with no subtype info."""
     header = repr(wkls.us.ca.search("zzznope")).split("\n")[0]
     assert header == "Wkl(rows=0)"
+
+
+def test_repr_caps_rendered_rows_at_ten():
+    """A big result renders 10 data rows; the header carries the true count."""
+    r = repr(wkls.us.regions())
+    assert r.splitlines()[0] == "Wkl(rows=51, subtype='region')"
+    uuid_rows = [
+        ln for ln in r.splitlines() if re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-", ln)
+    ]
+    assert len(uuid_rows) == 10
 
 
 def test_module_docstring_leads_with_quickstart():

@@ -1158,8 +1158,10 @@ class Wkl(_GeometryMixin):
         view_name = "_wkls_repr_tmp"
         df.to_view(view_name, overwrite=True)
         display_df = _bootstrap.sedona.sql(f"SELECT {col_list} FROM {view_name}")
-        # Use wider width to avoid truncating UUID columns.
-        base_repr = display_df._impl.show(display_df._ctx, 10, 200, ascii=False).strip()
+        # Width comes from ``sedona.options.width`` (set in _bootstrap) so
+        # UUID columns aren't truncated. Going through ``repr()`` keeps us
+        # on the public sedonadb API.
+        base_repr = repr(display_df)
         header = self._repr_header()
 
         if self.chain:
