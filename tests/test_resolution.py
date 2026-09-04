@@ -176,16 +176,13 @@ def test_india_maharashtra_full_chain():
     assert wkt.startswith("MULTIPOLYGON") or wkt.startswith("POLYGON")
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Name resolution does not accent-fold: Overture's name_en for "
-        "Côte d'Ivoire contains diacritics and punctuation (ô, apostrophe) "
-        "that cannot be typed as a Python identifier. Needs a "
-        "name_normalized column or SQL-side accent stripping."
-    ),
-    strict=True,
-)
 def test_diacritic_english_fallback():
+    """English name resolves when name_primary carries diacritics.
+
+    Overture 2026-08-19.0 lists name_en "Ivory Coast" for CI (earlier
+    releases only had "Côte d'Ivoire", which no identifier can spell).
+    Name resolution still does not accent-fold; see the São Paulo xfail.
+    """
     df = wkls.ivorycoast._resolve().to_arrow_table()
     assert df.num_rows >= 1
     assert df.column("country")[0].as_py() == "CI"
