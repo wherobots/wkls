@@ -86,8 +86,8 @@ Configuration — wkls defaults to the latest Overture Maps release:
 
     wkls.overture_releases()               # list available versions
     wkls.overture_version()                # current version string
-    wkls.configure(overture_version='2026-03-18.0')
-    WKLS_OVERTURE_VERSION=2026-03-18.0     # env var, checked at import
+    wkls.configure(overture_version='2026-07-22.0')
+    WKLS_OVERTURE_VERSION=2026-07-22.0     # env var, checked at import
 
 Arrow schema — wkl.to_arrow_table() returns these columns:
 

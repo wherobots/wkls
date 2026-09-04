@@ -20,8 +20,8 @@ Example usage:
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
-from typing import Any, Callable
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import pyarrow as pa
 import sedonadb
@@ -797,7 +797,7 @@ class Wkl(_GeometryMixin):
         (``wkls.configure(overture_version="...")``).
 
         Args:
-            overture_version: Version string to use (e.g., ``"2025-12-17.0"``).
+            overture_version: Version string to use (e.g., ``"2026-07-22.0"``).
 
         Raises:
             ValueError: If called on a chained object or version is unavailable.
@@ -806,10 +806,10 @@ class Wkl(_GeometryMixin):
         Example:
             >>> import wkls
             >>> wkls.overture_releases()
-            ['2025-12-17.0', '2026-01-21.0']
-            >>> wkls.configure(overture_version="2025-12-17.0")
+            ['2026-07-22.0', '2026-08-19.0']
+            >>> wkls.configure(overture_version="2026-07-22.0")
             >>> wkls.overture_version()
-            '2025-12-17.0'
+            '2026-07-22.0'
         """
         available = _list_s3_releases()
         if overture_version not in available:
@@ -1080,7 +1080,7 @@ class Wkl(_GeometryMixin):
                 f"Wkl indices must be int or slice, got {type(key).__name__}"
             )
 
-        if not isinstance(key, (int, slice)):
+        if not isinstance(key, int | slice):
             raise TypeError(
                 f"Wkl indices must be int or slice, got {type(key).__name__}"
             )
@@ -1158,8 +1158,10 @@ class Wkl(_GeometryMixin):
         view_name = "_wkls_repr_tmp"
         df.to_view(view_name, overwrite=True)
         display_df = _bootstrap.sedona.sql(f"SELECT {col_list} FROM {view_name}")
-        # Use wider width to avoid truncating UUID columns.
-        base_repr = display_df._impl.show(display_df._ctx, 10, 200, ascii=False).strip()
+        # Width comes from ``sedona.options.width`` (set in _bootstrap) so
+        # UUID columns aren't truncated. Going through ``repr()`` keeps us
+        # on the public sedonadb API.
+        base_repr = repr(display_df)
         header = self._repr_header()
 
         if self.chain:

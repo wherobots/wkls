@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import importlib.resources
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import sedonadb
 
@@ -47,8 +48,23 @@ def _initialize_table() -> sedonadb.SedonaContext:
     """
     sedona = sedonadb.connect()
 
-    # Enable interactive mode for auto-display
+    # Parquet reader tuning for the remote Overture view:
+    #   - metadata_cache_limit: keep ~900MB of parquet footers + stats pages
+    #     in memory across queries. division_area is 8 files / 5.5GB; without
+    #     this each geometry query re-fetches footers from S3 (~10s+).
+    #   - bloom_filter_on_read=false: Overture's id stats span the full UUID
+    #     space per row group, so bloom filter pruning is 0%; we still pay
+    #     bytes for the filter pages. Off is a pure win on this dataset shape.
+    #   The cache only engages on the SQL query path from sedonadb 0.4
+    #   (apache/sedona-db#843); on 0.3 it still helps view re-registration
+    #   and is otherwise harmless.
+    sedona.sql("SET datafusion.runtime.metadata_cache_limit = '900M'")
+    sedona.sql("SET datafusion.execution.parquet.bloom_filter_on_read = false")
+
+    # Enable interactive mode for auto-display. Widen the repr beyond the
+    # 100-char/terminal default so UUID columns aren't truncated.
     sedona.options.interactive = True
+    sedona.options.width = 200
 
     # Monkey-patch `.sql()` for debug mode.
     sedona_sql = sedona.sql

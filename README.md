@@ -171,14 +171,14 @@ eval(resolved.path).wkt() == resolved.wkt()   # True
 
 ```python
 wkls.overture_releases()  # list currently available versions
-wkls.configure(overture_version="2026-04-15.0")
+wkls.configure(overture_version="2026-08-19.0")
 wkls.overture_version()   # current version
 ```
 
 Or set the `WKLS_OVERTURE_VERSION` environment variable:
 
 ```bash
-export WKLS_OVERTURE_VERSION=2026-04-15.0
+export WKLS_OVERTURE_VERSION=2026-08-19.0
 ```
 
 Priority: `configure()` > environment variable > auto-detect.
