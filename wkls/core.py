@@ -20,8 +20,8 @@ Example usage:
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
-from typing import Any, Callable
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import pyarrow as pa
 import sedonadb
@@ -1080,7 +1080,7 @@ class Wkl(_GeometryMixin):
                 f"Wkl indices must be int or slice, got {type(key).__name__}"
             )
 
-        if not isinstance(key, (int, slice)):
+        if not isinstance(key, int | slice):
             raise TypeError(
                 f"Wkl indices must be int or slice, got {type(key).__name__}"
             )
