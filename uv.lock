@@ -418,7 +418,7 @@ dev = [
 requires-dist = [
     { name = "geoarrow-pyarrow", specifier = ">=0.2.0" },
     { name = "pyarrow", specifier = ">=14.0.0" },
-    { name = "sedonadb", specifier = ">=0.3.0" },
+    { name = "sedonadb", specifier = ">=0.3.0,<0.4" },
 ]
 
 [package.metadata.requires-dev]
