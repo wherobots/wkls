@@ -8,7 +8,7 @@ version = "1.2.0"
 description = "Easy access to global administrative boundaries and geometries via Overture Maps data"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 keywords = ["gis", "geography", "boundaries", "geospatial", "overture-maps", "wkt", "geometry", "admin boundaries", "geojson", "spatial"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -16,7 +16,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -49,7 +48,7 @@ Changelog = "https://github.com/wherobots/wkls/releases"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3.5",
+    "pytest>=9.0.3",
     "ruff>=0.11.12",
 ]
 
@@ -68,7 +67,7 @@ exclude = [
 ]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 88
 
 [tool.ruff.lint]
