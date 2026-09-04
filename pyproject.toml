@@ -45,7 +45,7 @@ Changelog = "https://github.com/wherobots/wkls/releases"
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
-    "ruff>=0.11.12",
+    "ruff>=0.16",
 ]
 
 [tool.setuptools.package-data]
@@ -80,6 +80,8 @@ ignore = [
 ]
 
 [tool.ruff.format]
+# Keep hand-aligned trailing comments in README code blocks.
+exclude = ["*.md"]
 quote-style = "double"
 indent-style = "space"
 
