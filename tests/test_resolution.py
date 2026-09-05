@@ -305,3 +305,27 @@ def test_nonexistent_location_returns_empty():
 
     # ZZ is not a valid US state code
     assert wkls.us.zz._resolve().count() == 0
+
+
+# ---------- Attribute spellings agents actually use ----------
+
+
+def test_underscored_place_name_resolves():
+    """``san_francisco`` is the natural spelling; separators are stripped."""
+    assert wkls.us.ca.san_francisco.to_dicts()[0]["name_en"] == "San Francisco"
+    assert wkls.us.ca.san_francisco.path == wkls.us.ca.sanfrancisco.path
+
+
+def test_root_country_aliases():
+    """Colloquial codes that are not ISO alpha-2 resolve at the root."""
+    assert wkls.uk.to_dicts()[0]["country"] == "GB"
+    assert wkls.usa.to_dicts()[0]["country"] == "US"
+    assert wkls.uae.to_dicts()[0]["country"] == "AE"
+
+
+def test_depth3_search_scope_is_children_even_after_repr():
+    """Regression: a cached ``_df`` made search narrow the county row itself."""
+    fresh = len(wkls.us.pa.yorkcounty.search("york"))
+    w = wkls.us.pa.yorkcounty
+    repr(w)
+    assert len(w.search("york")) == fresh > 1
