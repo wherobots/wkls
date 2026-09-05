@@ -54,7 +54,6 @@ class _GeometryMixin:
         from . import core as _core
         from .core import AmbiguousLocationError, _build_error_hint
 
-        _core._ensure_overture_loaded()
         df = self._resolve()
         row_count = df.count()
         if row_count == 0:
@@ -66,7 +65,7 @@ class _GeometryMixin:
             raise ValueError("No rows to resolve into a geometry.")
 
         if row_count > 1:
-            raise AmbiguousLocationError(self._ambiguity_message(df))
+            raise AmbiguousLocationError(self._ambiguity_message(df), candidates=self)
 
         row = df.head(1).to_arrow_table()
         gers_id = row.column("id")[0].as_py()
@@ -74,6 +73,9 @@ class _GeometryMixin:
         region = row.column("region")[0].as_py()
         subtype = row.column("subtype")[0].as_py()
         name_primary = row.column("name_primary")[0].as_py()
+
+        # Only now touch S3: every error above is answered from the bundle.
+        _core._ensure_overture_loaded()
 
         base_conditions = [
             "country = $country",

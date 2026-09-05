@@ -277,3 +277,50 @@ def test_result_mode_dir_omits_subtype_names():
         assert subtype not in entries, (
             f"dir() should not advertise subtype '{subtype}' as a narrower"
         )
+
+
+def test_ambiguous_error_carries_candidates():
+    """``err.candidates`` is the multi-row Wkl — no message parsing needed."""
+    with pytest.raises(wkls.AmbiguousLocationError) as exc_info:
+        wkls.us.pa.york.wkt()
+    candidates = exc_info.value.candidates
+    assert len(candidates) == 2
+    assert all(
+        "york" in (r["name_en"] or r["name_primary"]).lower()
+        for r in candidates.to_dicts()
+    )
+    assert candidates.to_dicts()[0]["id"] in str(exc_info.value)
+
+
+def test_ambiguity_is_detected_without_the_network(monkeypatch):
+    """Row counts come from the bundle; S3 is touched only for a real fetch."""
+
+    def no_network(**kwargs):
+        raise AssertionError("_ensure_overture_loaded must not run before the checks")
+
+    monkeypatch.setattr(wkls.core, "_ensure_overture_loaded", no_network)
+    with pytest.raises(wkls.AmbiguousLocationError):
+        wkls.us.pa.york.wkt()
+    with pytest.raises(ValueError, match="No results found"):
+        wkls.us.ca.sanfransisco.wkt()
+
+
+def test_ambiguous_error_survives_pickling_and_copying():
+    import copy
+    import pickle
+
+    with pytest.raises(wkls.AmbiguousLocationError) as exc_info:
+        wkls.us.pa.york.wkt()
+    err = exc_info.value
+
+    restored = pickle.loads(pickle.dumps(err))
+    assert type(restored) is wkls.AmbiguousLocationError
+    assert str(restored) == str(err)
+    assert restored.candidates is None
+    assert str(copy.deepcopy(err)) == str(err)
+
+
+def test_exception_class_is_exported_at_package_level():
+    """``except wkls.AmbiguousLocationError`` must catch, not drill a chain."""
+    assert wkls.AmbiguousLocationError is wkls.core.AmbiguousLocationError
+    assert issubclass(wkls.AmbiguousLocationError, ValueError)
