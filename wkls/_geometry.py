@@ -66,7 +66,7 @@ class _GeometryMixin:
             raise ValueError("No rows to resolve into a geometry.")
 
         if row_count > 1:
-            raise AmbiguousLocationError(self._ambiguity_message(df))
+            raise AmbiguousLocationError(self._ambiguity_message(df), candidates=self)
 
         row = df.head(1).to_arrow_table()
         gers_id = row.column("id")[0].as_py()
