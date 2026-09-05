@@ -118,7 +118,11 @@ class _GeometryMixin:
         )
 
     def wkt(self: Wkl) -> str:
-        """Get Well-Known Text (WKT) geometry for the first result.
+        """Get Well-Known Text (WKT) geometry for a single-row Wkl.
+
+        Fetches from Overture on S3 (2–10 s, not cached). Output can run
+        to more than 1 MB for a large state; check ``len()`` before
+        printing. For many rows call ``to_arrow_table()`` once instead.
 
         Returns:
             WKT string representation of the geometry.
@@ -130,7 +134,11 @@ class _GeometryMixin:
         return self._get_geom_expr("ST_AsText(geometry)")
 
     def wkb(self: Wkl) -> bytes:
-        """Get Well-Known Binary (WKB) geometry for the first result.
+        """Get Well-Known Binary (WKB) geometry for a single-row Wkl.
+
+        Fetches from Overture on S3 (2–10 s, not cached). Output can run
+        to more than 1 MB for a large state; check ``len()`` before
+        printing. For many rows call ``to_arrow_table()`` once instead.
 
         Returns:
             Binary WKB representation of the geometry.
@@ -142,7 +150,11 @@ class _GeometryMixin:
         return self._get_geom_expr("ST_AsWKB(geometry)")
 
     def geojson(self: Wkl) -> str:
-        """Get GeoJSON geometry for the first result.
+        """Get GeoJSON geometry for a single-row Wkl.
+
+        Fetches from Overture on S3 (2–10 s, not cached). Output can run
+        to more than 1 MB for a large state; check ``len()`` before
+        printing. For many rows call ``to_arrow_table()`` once instead.
 
         Returns:
             GeoJSON string representation of the geometry.

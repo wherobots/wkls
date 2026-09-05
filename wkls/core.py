@@ -27,7 +27,7 @@ from typing import Any
 import pyarrow as pa
 import sedonadb
 
-from . import _bootstrap, queries
+from . import _bootstrap, _geometry, queries
 from ._geometry import _GeometryMixin
 from ._version import _list_s3_releases, _resolve_overture_version
 
@@ -1522,8 +1522,13 @@ class Wkl(_GeometryMixin):
         instead.
 
         Returns:
-            pyarrow.Table with metadata columns plus a 'geometry' column
-            typed as ``geoarrow.wkb<OGC:CRS84>``.
+            pyarrow.Table with the full Overture division_area schema —
+            id, country, region, subtype, names, sources, admin_level,
+            class, is_land, is_territorial, division_id, version, bbox —
+            plus 'geometry' typed as ``geoarrow.wkb<OGC:CRS84>``. The
+            display name is ``names.primary`` (a struct field); the flat
+            ``name_primary`` / ``name_en`` / ``parent_id`` keys exist only
+            on ``to_dicts()``.
 
         Raises:
             ValueError: If the chain is empty and no cached DataFrame is
@@ -2081,3 +2086,9 @@ def _wkl_from_arrow_slice(table: pa.Table) -> Wkl:
     ``_df`` for downstream ``.wkt()`` / ``.path`` / ``.parent`` calls.
     """
     return Wkl(_df=_bootstrap.sedona.create_data_frame(table))
+
+
+# Let ``typing.get_type_hints()`` resolve the geometry mixin's ``self: Wkl``
+# annotations at runtime: tool-schema generators (pydantic, LangChain) call
+# it on exactly wkt/wkb/geojson, and the mixin imports Wkl for mypy only.
+_geometry.Wkl = Wkl  # type: ignore[attr-defined]
