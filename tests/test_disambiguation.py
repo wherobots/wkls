@@ -296,3 +296,9 @@ def test_exception_class_is_exported_at_package_level():
     """``except wkls.AmbiguousLocationError`` must catch, not drill a chain."""
     assert wkls.AmbiguousLocationError is wkls.core.AmbiguousLocationError
     assert issubclass(wkls.AmbiguousLocationError, ValueError)
+
+
+def test_result_mode_ambiguity_names_the_row_count():
+    """No 'this result' placeholder; say how many rows there are."""
+    with pytest.raises(wkls.AmbiguousLocationError, match="58 rows in this result"):
+        wkls.us.ca.counties().wkt()
