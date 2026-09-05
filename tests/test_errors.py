@@ -200,3 +200,10 @@ def test_search_on_an_empty_scope_raises_the_chain_hint():
         wkls.zz.search("london")
     with pytest.raises(ValueError, match="No results found for: us.ca.sanfransisco"):
         wkls.us.ca.sanfransisco.search("x")
+
+
+def test_far_suggestions_are_dropped():
+    """Only near misses are suggested; 'sananselmo' is five edits away."""
+    r = repr(wkls.us.ca.sanfransisco)
+    assert "sanfrancisco" in r
+    assert "sananselmo" not in r
