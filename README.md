@@ -49,7 +49,9 @@ Every level accepts an [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_31
 ```python
 wkls.india.maharashtra.wkt()   # country name + region name
 wkls.us.oregon                 # sidesteps the `or` keyword collision
+wkls.us.or_                    # or add a trailing underscore; underscores are ignored
 wkls.austria.burgenland        # sidesteps numeric region suffixes (AT-1)
+wkls.uk                        # the colloquial codes uk, usa and uae resolve too
 ```
 
 If you prefer explicit instantiation over the module singleton:
@@ -103,7 +105,7 @@ wkls.us.ca.search("san francisco")  # anywhere in California
 ```
 
 Results come back as a `Wkl` — the same type every other access returns.
-Use `len()`, `list()`, slicing, or `.to_dicts()` for
+Use `len()`, slicing, or `.to_dicts()` for
 inspection, or `.wkt()` / `.wkb()` / `.geojson()` on a single-row
 result to fetch geometry in one step. `.to_dicts()` is the easiest
 way to iterate rows in plain Python:
@@ -112,13 +114,20 @@ way to iterate rows in plain Python:
 non_us = [r for r in wkls.search("franklin").to_dicts() if r["country"] != "US"]
 ```
 
+`search()` raises `TypeError` for a non-string query and `ValueError` for an
+empty query or when the chain itself matched nothing (with the same "did you
+mean" hint as the chain's repr). A valid scope with no match returns an empty
+`Wkl`.
+
 ### Resolving ambiguity
 
 Some locations share names. 18 Pennsylvania townships are named "Franklin";
 "York" in PA matches both a locality and a county. When a chain resolves
 to more than one row, geometry methods raise `AmbiguousLocationError`
 rather than silently picking one — and the error message lists
-copy-pasteable chains to run next.
+copy-pasteable chains to run next. The error's `.candidates` holds the
+matching rows as a `Wkl`, so code can inspect them with `.to_dicts()` instead
+of parsing the message.
 
 Dot access is strictly admin-hierarchy. One way to narrow is via the
 chain; one escape hatch covers everything else.
