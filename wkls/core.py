@@ -91,9 +91,12 @@ _DIR_ROOT_METHODS = frozenset(
     {
         "Wkl",
         "by_id",
+        "cities",
         "configure",
+        "counties",
         "countries",
         "dependencies",
+        "regions",
         "overture_releases",
         "overture_version",
         "search",
@@ -251,6 +254,10 @@ def _field_redirect(attr: str) -> str:
 _DIR_RESULT_NARROW_METHODS = frozenset(
     {"cities", "counties", "countries", "dependencies", "regions", "subtypes"}
 )
+
+# Rows sedonadb's DataFrame repr prints before cutting off (its ``show``
+# default). Used to append an explicit "more rows" marker.
+_REPR_ROWS = 10
 
 # Surface 2 error messages. Kept at module scope so tests can pattern-match
 # a stable substring without coupling to the exact full text.
@@ -564,9 +571,12 @@ class Wkl(_GeometryMixin):
         .county' hint that may not apply. Always lists ``by_id(...)``
         for every candidate as the guaranteed fallback.
         """
-        where = "wkls." + ".".join(self.chain) if self.chain else "this result"
         table = df.to_arrow_table()
         n = table.num_rows
+        if self.chain:
+            subject = f"{n} matches for 'wkls.{'.'.join(self.chain)}'"
+        else:
+            subject = f"{n} rows in this result"
         sample = min(n, 10)
 
         candidates = _group_candidates(table, self._fetch_row, sample)
@@ -592,18 +602,14 @@ class Wkl(_GeometryMixin):
         )
 
         if self.chain and attrs_differ:
-            lines.append(
-                f"{n} matches for '{where}'. Use the unambiguous normalized name:"
-            )
+            lines.append(f"{subject}. Use the unambiguous normalized name:")
             lines.append("")
             for c in candidates:
                 lines.append(
                     f"  {chain_prefix}.{c['attr']:<18}  # {c['name']} ({c['subtype']})"
                 )
         elif self.chain and parents_differ:
-            lines.append(
-                f"{n} matches for '{where}'. Narrow by parent (4-level chain):"
-            )
+            lines.append(f"{subject}. Narrow by parent (4-level chain):")
             lines.append("")
             for c in candidates:
                 parent_label = c["parent_name"] or c["parent_attr"] or "?"
@@ -615,7 +621,7 @@ class Wkl(_GeometryMixin):
         else:
             # Same attr + same parent (or no chain to narrow) — dot
             # paths can't distinguish these.
-            lines.append(f"{n} matches for '{where}'. Narrow with one of:")
+            lines.append(f"{subject}. Narrow with one of:")
 
         # Subtype narrowing — applies whenever candidates span multiple
         # subtype *groups* (two rows both in ``locality`` don't get a
@@ -1241,6 +1247,19 @@ class Wkl(_GeometryMixin):
             return "Wkl(root)"
 
         df = self._resolve()
+        subtypes = self._subtype_counts()
+        header = self._repr_header(subtypes)
+        row_count = sum(subtypes.values())
+
+        if row_count == 0:
+            # No table frame for an empty result: the header already says
+            # rows=0, and the hint says what to try next.
+            if self.chain:
+                suggestions = self._get_suggestions(self.chain[-1])
+                hint = _build_error_hint(self.chain, suggestions)
+                return f"{header}\n{hint}".rstrip()
+            return header
+
         # Drop parent_id from repr — it's a raw UUID that adds noise.
         # Users who need it can call .to_dicts() or .to_arrow_table().
         cols = [c for c in df.columns if c != "parent_id"]
@@ -1252,24 +1271,27 @@ class Wkl(_GeometryMixin):
         # UUID columns aren't truncated. Going through ``repr()`` keeps us
         # on the public sedonadb API.
         base_repr = repr(display_df)
-        header = self._repr_header()
 
-        if self.chain:
-            is_empty = df.count() == 0
-            if is_empty:
-                suggestions = self._get_suggestions(self.chain[-1])
-                hint = _build_error_hint(self.chain, suggestions) + "\n"
-                return f"{header}\n{hint}{base_repr}"
+        if row_count > _REPR_ROWS:
+            # sedonadb prints the first _REPR_ROWS rows with no marker; say
+            # so, or a reader assumes the table is complete.
+            return (
+                f"{header}\n{base_repr}\n"
+                f"… {row_count - _REPR_ROWS} more rows not shown. "
+                "Use wkl[i], wkl[:n], .to_dicts() or .search() to narrow."
+            )
         return f"{header}\n{base_repr}"
 
-    def _repr_header(self) -> str:
+    def _repr_header(self, subtypes: dict[str, int] | None = None) -> str:
         """One-line state header: path/chain, row count, subtype breakdown.
 
         Formatted so an agent inspecting a ``Wkl`` can see its mode and
         size at a glance. ``path=`` is used when the chain resolves to a
         single row (round-trippable); ``chain=`` is used otherwise.
+        ``subtypes`` lets ``__repr__`` share one count query.
         """
-        subtypes = self._subtype_counts()
+        if subtypes is None:
+            subtypes = self._subtype_counts()
         row_count = sum(subtypes.values())
 
         parts: list[str] = []
@@ -1386,7 +1408,7 @@ class Wkl(_GeometryMixin):
         return self._df
 
     def _get_suggestions(
-        self, failed_name: str, n: int = 5, max_distance: int = 15
+        self, failed_name: str, n: int = 5, max_distance: int = 12
     ) -> list[str]:
         """Get similar location names for "did you mean" suggestions.
 
@@ -1396,7 +1418,9 @@ class Wkl(_GeometryMixin):
         Args:
             failed_name: The name that wasn't found.
             n: Maximum number of suggestions to return.
-            max_distance: Maximum Levenshtein score for city-level (default 15).
+            max_distance: Maximum score for city-level suggestions (default
+                12: exact, prefix and substring matches plus up to two
+                edits; anything farther is noise, not a suggestion).
 
         Returns:
             List of chainable location names (lowercase, no spaces/special chars),

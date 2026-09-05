@@ -329,3 +329,22 @@ def test_depth3_search_scope_is_children_even_after_repr():
     w = wkls.us.pa.yorkcounty
     repr(w)
     assert len(w.search("york")) == fresh > 1
+
+
+# ---------- repr hygiene ----------
+
+
+def test_repr_marks_truncated_rows():
+    """Header says rows=N, the table shows 10, the footer says how many more."""
+    r = repr(wkls.us.regions())
+    assert r.splitlines()[0] == "Wkl(rows=51, subtype='region')"
+    assert "41 more rows not shown" in r
+    assert "more rows" not in repr(wkls.us.ca.sanfrancisco)
+
+
+def test_empty_repr_has_no_table_frame():
+    """An empty result is header + hint; no empty table frame."""
+    r = repr(wkls.us.ca.sanfransisco)
+    assert "┌" not in r
+    assert "Did you mean: sanfrancisco" in r
+    assert repr(wkls.us.ca.search("zzznope")) == "Wkl(rows=0)"
