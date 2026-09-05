@@ -19,6 +19,7 @@ Example usage:
 
 from __future__ import annotations
 
+import difflib
 import re
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -71,10 +72,18 @@ class AmbiguousLocationError(ValueError):
     keep catching it. The message lists every candidate with its subtype,
     parent name, and id, and points at the dot-based disambiguation paths:
 
-    - subtype modifier: ``wkls.us.ca.mission.locality``
+    - subtype filter on the result: ``wkls.us.ca.search('mission').cities()``
     - 4-level parent narrower: ``wkls.us.pa.adamscounty.franklin``
     - exact pick: ``wkls.by_id('<uuid>')``
+
+    ``candidates`` holds the multi-row ``Wkl`` that raised, so callers can
+    recover programmatically (``err.candidates.to_dicts()``,
+    ``err.candidates[0].wkt()``) instead of parsing the message.
     """
+
+    def __init__(self, message: str, candidates: Wkl | None = None) -> None:
+        super().__init__(message)
+        self.candidates = candidates
 
 
 # Methods surfaced by __dir__ at each chain depth.
@@ -192,7 +201,48 @@ _S3_REDIRECTS: dict[str, str] = {
     "unique": "Use 'wkl.to_arrow_table()' and your engine of choice.",
 }
 
-_GENERIC_FALLBACK = "Use 'wkl.to_arrow_table()' and your engine of choice."
+_GENERIC_FALLBACK = (
+    "Row fields: wkl.to_dicts()[0]['name_en'] (keys: id, country, region, "
+    "subtype, name_primary, name_en, parent_id). Geometry: .wkt(), .wkb(), "
+    ".geojson(). Anything else: wkl.to_arrow_table() and your engine of choice."
+)
+
+# Colloquial country codes that are not ISO 3166-1 alpha-2. Applied at the
+# root only, where nothing but countries and dependencies resolve, so the
+# Russian locality "Uk" and the Japanese county "Usa" stay reachable through
+# their own chains.
+_COUNTRY_ALIASES: dict[str, str] = {"uk": "gb", "usa": "us", "uae": "ae"}
+
+# Row-field names agents reach for as attributes on a single-row Wkl. None of
+# them normalizes to a place name in the bundle, so redirecting is safe.
+_FIELD_REDIRECTS: frozenset[str] = frozenset(
+    {
+        "name",
+        "names",
+        "name_primary",
+        "name_en",
+        "subtype",
+        "country",
+        "region",
+        "parent_id",
+        "geometry",
+    }
+)
+
+
+def _field_redirect(attr: str) -> str:
+    """Explain how to read a row field that was accessed as an attribute."""
+    if attr == "geometry":
+        return (
+            "Geometry comes from .wkt(), .wkb() or .geojson() on a single-row "
+            "Wkl, or from .to_arrow_table() for many rows."
+        )
+    key = {"name": "name_en", "names": "name_primary"}.get(attr, attr)
+    return (
+        f"Read row fields with wkl.to_dicts()[0]['{key}'] "
+        "(keys: id, country, region, subtype, name_primary, name_en, parent_id)."
+    )
+
 
 # Listing methods that narrow a multi-row result to a single subtype
 # (or inspect what subtypes are present). Surfaced via ``dir()`` on a
@@ -836,9 +886,10 @@ class Wkl(_GeometryMixin):
 
         1. Private/dunder attributes → ``AttributeError``.
         2. Root-only methods → ``AttributeError``.
-        3. Redirect tables (S1 → S2 → S3) → ``AttributeError`` with
-           suggestion.
-        4. Chain drill (alphanumeric location identifier) → new ``Wkl``.
+        3. Row-field names and redirect tables (S1 → S2 → S3) →
+           ``AttributeError`` naming the right call.
+        4. Chain drill (location identifier, underscores stripped, root
+           aliases ``uk``/``usa``/``uae`` applied) → new ``Wkl``.
         5. Generic fallback → ``AttributeError``.
 
         Raises:
@@ -861,6 +912,13 @@ class Wkl(_GeometryMixin):
                 f"'{self.__class__.__name__}' object has no attribute '{attr}'"
             )
 
+        # Row fields are not attributes; say where they live instead of
+        # drilling "name_primary" into the chain as a place name.
+        if attr in _FIELD_REDIRECTS:
+            raise AttributeError(
+                f"'{attr}' is not a Wkl attribute. {_field_redirect(attr)}"
+            )
+
         # Redirect check — must fire before chain drill so that known
         # non-location attrs (e.g. .filter) don't silently extend the chain.
         for table in (_S1_REDIRECTS, _S2_REDIRECTS, _S3_REDIRECTS):
@@ -873,8 +931,14 @@ class Wkl(_GeometryMixin):
         # identifiers (alphanumeric). Result-mode Wkls (no chain, have
         # _df) skip drill — they have no tree position.
         if self.chain or self._df is None:
-            if attr.isalnum():
-                new_chain = self.chain + [attr.lower()]
+            # Attribute names can't hold spaces, so agents write
+            # ``san_francisco``; the bundle's normalized form has no
+            # separators at all. Strip underscores before matching.
+            token = attr.replace("_", "").lower()
+            if not self.chain:
+                token = _COUNTRY_ALIASES.get(token, token)
+            if token.isalnum():
+                new_chain = self.chain + [token]
                 if len(new_chain) > 4:
                     raise ValueError(
                         "Chain too deep (max = 4). Use .by_id('<uuid>') for specific rows."
@@ -897,6 +961,32 @@ class Wkl(_GeometryMixin):
 
         raise AttributeError(
             f"'{attr}' is not part of the Wkl API. {_GENERIC_FALLBACK}"
+        )
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """Explain a call on a ``Wkl`` instead of a bare "not callable".
+
+        A misspelled method (``wkls.us.wktt()``) is read as a place name
+        first, so the parentheses land here. Name the closest public
+        method so the caller can fix the typo in one step.
+        """
+        methods = sorted(
+            n
+            for n in dir(type(self))
+            if not n.startswith("_") and callable(getattr(type(self), n))
+        )
+        token = self.chain[-1] if self.chain else ""
+        where = "wkls." + ".".join(self.chain) if self.chain else "this Wkl"
+        close = difflib.get_close_matches(token, methods, n=1, cutoff=0.6)
+        if close:
+            raise TypeError(
+                f"'{token}' is not a Wkl method; it was read as a place name "
+                f"({where}). Did you mean .{close[0]}()? "
+                f"Wkl methods: {', '.join(methods)}."
+            )
+        raise TypeError(
+            f"Wkl is not callable; drop the parentheses ({where}). "
+            f"Wkl methods: {', '.join(methods)}."
         )
 
     def __dir__(self) -> list[str]:
@@ -1873,6 +1963,12 @@ class Wkl(_GeometryMixin):
         Returns:
             A result-mode ``Wkl`` of matching rows.
 
+        Raises:
+            TypeError: If ``query`` is not a string.
+            ValueError: If ``query`` has no letters or digits, or the chain
+                itself matches no rows (the message carries the same
+                "did you mean" hint as the chain's repr).
+
         Examples:
             >>> import wkls
             >>> wkls.search("san francisco")              # full dataset
@@ -1880,18 +1976,35 @@ class Wkl(_GeometryMixin):
             >>> wkls.us.ca.search("san")                  # scoped to CA
             >>> wkls.us.ca.search("san").search("fran")   # narrow within
         """
+        if not isinstance(query, str):
+            raise TypeError(f"search() takes a str query, got {type(query).__name__}.")
         depth = len(self.chain)
+        result_mode = depth == 0 and self._df is not None
 
         # Normalize to the dot-access form so ``search("sanfrancisco")``
         # and ``search("San Francisco")`` both match "San Francisco".
         normalized_query = _normalize_name(query)
+        if not normalized_query:
+            raise ValueError(
+                "search() needs a non-empty query with at least one letter or digit."
+            )
+
+        # A chain that matches nothing has nothing to search within. Raise
+        # the hint its repr would show instead of returning a silent empty.
+        if self.chain and self._resolve().count() == 0:
+            raise ValueError(
+                _build_error_hint(
+                    self.chain, self._get_suggestions(self.chain[-1])
+                ).strip()
+            )
 
         # Depth > 2 or result-mode: resolve to a temp view and search
         # within it. For chain-mode at depth > 2 (e.g. wkls.us.pa.yorkcounty),
-        # search the county's cities rather than the county row itself.
-        if depth > 2 or (depth == 0 and self._df is not None):
+        # search the county's cities rather than the county row itself —
+        # decided by the chain, not by whether ``_df`` happens to be cached.
+        if depth > 2 or result_mode:
             view_name = "_wkls_search_within"
-            if self._df is not None:
+            if result_mode:
                 # Result-mode: narrow within existing rows.
                 resolved = self._df
             else:

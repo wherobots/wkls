@@ -277,3 +277,22 @@ def test_result_mode_dir_omits_subtype_names():
         assert subtype not in entries, (
             f"dir() should not advertise subtype '{subtype}' as a narrower"
         )
+
+
+def test_ambiguous_error_carries_candidates():
+    """``err.candidates`` is the multi-row Wkl — no message parsing needed."""
+    with pytest.raises(wkls.AmbiguousLocationError) as exc_info:
+        wkls.us.pa.york.wkt()
+    candidates = exc_info.value.candidates
+    assert len(candidates) == 2
+    assert all(
+        "york" in (r["name_en"] or r["name_primary"]).lower()
+        for r in candidates.to_dicts()
+    )
+    assert candidates.to_dicts()[0]["id"] in str(exc_info.value)
+
+
+def test_exception_class_is_exported_at_package_level():
+    """``except wkls.AmbiguousLocationError`` must catch, not drill a chain."""
+    assert wkls.AmbiguousLocationError is wkls.core.AmbiguousLocationError
+    assert issubclass(wkls.AmbiguousLocationError, ValueError)

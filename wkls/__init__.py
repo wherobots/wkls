@@ -105,9 +105,9 @@ from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .core import Wkl
+from .core import AmbiguousLocationError, Wkl
 
-__all__ = ["Wkl"]
+__all__ = ["AmbiguousLocationError", "Wkl"]
 
 
 # Intentionally shadows the builtin at module level so ``wkls.help()``
