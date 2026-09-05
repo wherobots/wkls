@@ -348,3 +348,18 @@ def test_empty_repr_has_no_table_frame():
     assert "┌" not in r
     assert "Did you mean: sanfrancisco" in r
     assert repr(wkls.us.ca.search("zzznope")) == "Wkl(rows=0)"
+
+
+def test_module_docstring_covers_agent_traps():
+    """help() must describe the real Arrow schema and the cost of geometry."""
+    doc = wkls.__doc__ or ""
+    for needle in (
+        "names.primary",
+        "not cached",
+        "getattr(wkls, 'in')",
+        "subtypes()",
+        "WKLS_DEBUG",
+        "san_francisco",
+    ):
+        assert needle in doc, needle
+    assert "list(wkl), tuple(wkl)" not in doc
