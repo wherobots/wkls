@@ -305,3 +305,61 @@ def test_nonexistent_location_returns_empty():
 
     # ZZ is not a valid US state code
     assert wkls.us.zz._resolve().count() == 0
+
+
+# ---------- Attribute spellings agents actually use ----------
+
+
+def test_underscored_place_name_resolves():
+    """``san_francisco`` is the natural spelling; separators are stripped."""
+    assert wkls.us.ca.san_francisco.to_dicts()[0]["name_en"] == "San Francisco"
+    assert wkls.us.ca.san_francisco.path == wkls.us.ca.sanfrancisco.path
+
+
+def test_root_country_aliases():
+    """Colloquial codes that are not ISO alpha-2 resolve at the root."""
+    assert wkls.uk.to_dicts()[0]["country"] == "GB"
+    assert wkls.usa.to_dicts()[0]["country"] == "US"
+    assert wkls.uae.to_dicts()[0]["country"] == "AE"
+
+
+def test_depth3_search_scope_is_children_even_after_repr():
+    """Regression: a cached ``_df`` made search narrow the county row itself."""
+    fresh = len(wkls.us.pa.yorkcounty.search("york"))
+    w = wkls.us.pa.yorkcounty
+    repr(w)
+    assert len(w.search("york")) == fresh > 1
+
+
+# ---------- repr hygiene ----------
+
+
+def test_repr_marks_truncated_rows():
+    """Header says rows=N, the table shows 10, the footer says how many more."""
+    r = repr(wkls.us.regions())
+    assert r.splitlines()[0] == "Wkl(rows=51, subtype='region')"
+    assert "41 more rows not shown" in r
+    assert "more rows" not in repr(wkls.us.ca.sanfrancisco)
+
+
+def test_empty_repr_has_no_table_frame():
+    """An empty result is header + hint; no empty table frame."""
+    r = repr(wkls.us.ca.sanfransisco)
+    assert "┌" not in r
+    assert "Did you mean: sanfrancisco" in r
+    assert repr(wkls.us.ca.search("zzznope")) == "Wkl(rows=0)"
+
+
+def test_module_docstring_covers_agent_traps():
+    """help() must describe the real Arrow schema and the cost of geometry."""
+    doc = wkls.__doc__ or ""
+    for needle in (
+        "names.primary",
+        "not cached",
+        "getattr(wkls, 'in')",
+        "subtypes()",
+        "WKLS_DEBUG",
+        "san_francisco",
+    ):
+        assert needle in doc, needle
+    assert "list(wkl), tuple(wkl)" not in doc
