@@ -18,6 +18,10 @@ Chain depth maps to the admin hierarchy (max 3 for unambiguous cases):
 
 Names are lowercased with non-alphanumerics stripped; ISO codes work
 too: wkls.us, wkls.unitedstates, wkls.us.ca, wkls.us.california.
+Underscores are ignored (wkls.us.ca.san_francisco). ISO codes that are
+Python keywords (in, is, or, as) need the name or getattr:
+wkls.india, wkls.us.oregon, getattr(wkls, 'in'). The colloquial codes
+uk, usa and uae resolve at the root.
 
 Resolving ambiguity — when a chain resolves to >1 row, geometry
 methods raise AmbiguousLocationError (a ValueError subclass) with a
@@ -48,17 +52,25 @@ Every call returns a Wkl — one unified type. Inspect like any Python
 sequence:
 
     len(wkl)                               # row count
-    for row in wkl: row.wkt()              # iterate; each row is a Wkl
+    for row in wkl: row.to_dicts()[0]      # iterate; each row is a 1-row Wkl
     wkl[0], wkl[-1]                        # positional index
     wkl[:5]                                # slice; returns a multi-row Wkl
     '<uuid>' in wkl                        # id-column membership check
-    list(wkl), tuple(wkl)                  # standard collection conversions
+
+Printing a multi-row Wkl shows 10 rows plus a "more rows" footer. Do
+not print list(wkl) or each row in a loop: every 1-row Wkl reprs as a
+full table (~600 chars), so 722 cities is ~450K chars. Use .to_dicts().
 
 Also available: .to_dicts() (metadata-only), .to_arrow_table() (with
 geometry, GeoArrow WKB). For DataFrame ops beyond admin-boundary lookup
 (.filter, .join, .group_by, …), call .to_arrow_table() and use your
 engine of choice (GeoPandas, DuckDB, Polars, etc.). Extract geometry
 with .wkt() / .wkb() / .geojson() when the Wkl holds exactly one row.
+
+Geometry cost — each .wkt() / .wkb() / .geojson() call is a 2–10 s fetch
+from Overture on S3 and is not cached. Output runs from ~20 KB (a city)
+to >1 MB (a large state); check len() before printing. For more than
+one row, call .to_arrow_table() once instead of looping.
 
 Navigation — .parent walks up one level; .path returns the canonical
 dot-chain string that round-trips via eval:
@@ -72,6 +84,7 @@ Listing — scopes narrow with chain depth:
     wkls.us.regions()                      # 51 US regions
     wkls.us.ca.counties()                  # 58 CA counties
     wkls.us.ca.sandiegocounty.cities()     # 19 localities in SD County
+    wkls.us.tx.subtypes()                  # which subtypes exist in scope
 
 Two ways to use the library (equivalent):
 
@@ -88,26 +101,28 @@ Configuration — wkls defaults to the latest Overture Maps release:
     wkls.overture_version()                # current version string
     wkls.configure(overture_version='2026-07-22.0')
     WKLS_OVERTURE_VERSION=2026-07-22.0     # env var, checked at import
+    WKLS_DEBUG=1                           # env var: print every SQL query
 
-Arrow schema — wkl.to_arrow_table() returns these columns:
+Columns — .to_dicts() returns flat rows with these keys:
 
-    id            string     Overture feature ID (UUID)
-    country       string     ISO 3166-1 alpha-2 code
-    region        string     region name (state / province)
-    subtype       string     country | dependency | region | county | locality | localadmin
-    name_primary  string     primary display name
-    name_en       string     English name (may equal name_primary)
-    parent_id     string     parent feature ID
-    geometry      GeoArrow WKB (OGC:CRS84)
+    id, country, region, subtype, name_primary, name_en, parent_id
+    (subtype is one of country | dependency | region | county | locality | localadmin)
+
+.to_arrow_table() returns the full Overture division_area schema (14
+columns: id, country, region, subtype, names, sources, admin_level,
+class, is_land, is_territorial, division_id, version, bbox, geometry).
+The display name is names.primary (a struct), not name_primary; the
+geometry column is GeoArrow WKB (OGC:CRS84). Hand it to GeoPandas,
+DuckDB or Polars.
 """
 
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .core import Wkl
+from .core import AmbiguousLocationError, Wkl
 
-__all__ = ["Wkl"]
+__all__ = ["AmbiguousLocationError", "Wkl"]
 
 
 # Intentionally shadows the builtin at module level so ``wkls.help()``

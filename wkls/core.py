@@ -19,6 +19,7 @@ Example usage:
 
 from __future__ import annotations
 
+import difflib
 import re
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -26,7 +27,7 @@ from typing import Any
 import pyarrow as pa
 import sedonadb
 
-from . import _bootstrap, queries
+from . import _bootstrap, _geometry, queries
 from ._geometry import _GeometryMixin
 from ._version import _list_s3_releases, _resolve_overture_version
 
@@ -71,10 +72,18 @@ class AmbiguousLocationError(ValueError):
     keep catching it. The message lists every candidate with its subtype,
     parent name, and id, and points at the dot-based disambiguation paths:
 
-    - subtype modifier: ``wkls.us.ca.mission.locality``
+    - subtype filter on the result: ``wkls.us.ca.search('mission').cities()``
     - 4-level parent narrower: ``wkls.us.pa.adamscounty.franklin``
     - exact pick: ``wkls.by_id('<uuid>')``
+
+    ``candidates`` holds the multi-row ``Wkl`` that raised, so callers can
+    recover programmatically (``err.candidates.to_dicts()``,
+    ``err.candidates[0].wkt()``) instead of parsing the message.
     """
+
+    def __init__(self, message: str, candidates: Wkl | None = None) -> None:
+        super().__init__(message)
+        self.candidates = candidates
 
 
 # Methods surfaced by __dir__ at each chain depth.
@@ -82,9 +91,12 @@ _DIR_ROOT_METHODS = frozenset(
     {
         "Wkl",
         "by_id",
+        "cities",
         "configure",
+        "counties",
         "countries",
         "dependencies",
+        "regions",
         "overture_releases",
         "overture_version",
         "search",
@@ -192,7 +204,48 @@ _S3_REDIRECTS: dict[str, str] = {
     "unique": "Use 'wkl.to_arrow_table()' and your engine of choice.",
 }
 
-_GENERIC_FALLBACK = "Use 'wkl.to_arrow_table()' and your engine of choice."
+_GENERIC_FALLBACK = (
+    "Row fields: wkl.to_dicts()[0]['name_en'] (keys: id, country, region, "
+    "subtype, name_primary, name_en, parent_id). Geometry: .wkt(), .wkb(), "
+    ".geojson(). Anything else: wkl.to_arrow_table() and your engine of choice."
+)
+
+# Colloquial country codes that are not ISO 3166-1 alpha-2. Applied at the
+# root only, where nothing but countries and dependencies resolve, so the
+# Russian locality "Uk" and the Japanese county "Usa" stay reachable through
+# their own chains.
+_COUNTRY_ALIASES: dict[str, str] = {"uk": "gb", "usa": "us", "uae": "ae"}
+
+# Row-field names agents reach for as attributes on a single-row Wkl. None of
+# them normalizes to a place name in the bundle, so redirecting is safe.
+_FIELD_REDIRECTS: frozenset[str] = frozenset(
+    {
+        "name",
+        "names",
+        "name_primary",
+        "name_en",
+        "subtype",
+        "country",
+        "region",
+        "parent_id",
+        "geometry",
+    }
+)
+
+
+def _field_redirect(attr: str) -> str:
+    """Explain how to read a row field that was accessed as an attribute."""
+    if attr == "geometry":
+        return (
+            "Geometry comes from .wkt(), .wkb() or .geojson() on a single-row "
+            "Wkl, or from .to_arrow_table() for many rows."
+        )
+    key = {"name": "name_en", "names": "name_primary"}.get(attr, attr)
+    return (
+        f"Read row fields with wkl.to_dicts()[0]['{key}'] "
+        "(keys: id, country, region, subtype, name_primary, name_en, parent_id)."
+    )
+
 
 # Listing methods that narrow a multi-row result to a single subtype
 # (or inspect what subtypes are present). Surfaced via ``dir()`` on a
@@ -201,6 +254,10 @@ _GENERIC_FALLBACK = "Use 'wkl.to_arrow_table()' and your engine of choice."
 _DIR_RESULT_NARROW_METHODS = frozenset(
     {"cities", "counties", "countries", "dependencies", "regions", "subtypes"}
 )
+
+# Rows sedonadb's DataFrame repr prints before cutting off (its ``show``
+# default). Used to append an explicit "more rows" marker.
+_REPR_ROWS = 10
 
 # Surface 2 error messages. Kept at module scope so tests can pattern-match
 # a stable substring without coupling to the exact full text.
@@ -514,9 +571,12 @@ class Wkl(_GeometryMixin):
         .county' hint that may not apply. Always lists ``by_id(...)``
         for every candidate as the guaranteed fallback.
         """
-        where = "wkls." + ".".join(self.chain) if self.chain else "this result"
         table = df.to_arrow_table()
         n = table.num_rows
+        if self.chain:
+            subject = f"{n} matches for 'wkls.{'.'.join(self.chain)}'"
+        else:
+            subject = f"{n} rows in this result"
         sample = min(n, 10)
 
         candidates = _group_candidates(table, self._fetch_row, sample)
@@ -542,18 +602,14 @@ class Wkl(_GeometryMixin):
         )
 
         if self.chain and attrs_differ:
-            lines.append(
-                f"{n} matches for '{where}'. Use the unambiguous normalized name:"
-            )
+            lines.append(f"{subject}. Use the unambiguous normalized name:")
             lines.append("")
             for c in candidates:
                 lines.append(
                     f"  {chain_prefix}.{c['attr']:<18}  # {c['name']} ({c['subtype']})"
                 )
         elif self.chain and parents_differ:
-            lines.append(
-                f"{n} matches for '{where}'. Narrow by parent (4-level chain):"
-            )
+            lines.append(f"{subject}. Narrow by parent (4-level chain):")
             lines.append("")
             for c in candidates:
                 parent_label = c["parent_name"] or c["parent_attr"] or "?"
@@ -565,7 +621,7 @@ class Wkl(_GeometryMixin):
         else:
             # Same attr + same parent (or no chain to narrow) — dot
             # paths can't distinguish these.
-            lines.append(f"{n} matches for '{where}'. Narrow with one of:")
+            lines.append(f"{subject}. Narrow with one of:")
 
         # Subtype narrowing — applies whenever candidates span multiple
         # subtype *groups* (two rows both in ``locality`` don't get a
@@ -836,9 +892,10 @@ class Wkl(_GeometryMixin):
 
         1. Private/dunder attributes → ``AttributeError``.
         2. Root-only methods → ``AttributeError``.
-        3. Redirect tables (S1 → S2 → S3) → ``AttributeError`` with
-           suggestion.
-        4. Chain drill (alphanumeric location identifier) → new ``Wkl``.
+        3. Row-field names and redirect tables (S1 → S2 → S3) →
+           ``AttributeError`` naming the right call.
+        4. Chain drill (location identifier, underscores stripped, root
+           aliases ``uk``/``usa``/``uae`` applied) → new ``Wkl``.
         5. Generic fallback → ``AttributeError``.
 
         Raises:
@@ -861,6 +918,13 @@ class Wkl(_GeometryMixin):
                 f"'{self.__class__.__name__}' object has no attribute '{attr}'"
             )
 
+        # Row fields are not attributes; say where they live instead of
+        # drilling "name_primary" into the chain as a place name.
+        if attr in _FIELD_REDIRECTS:
+            raise AttributeError(
+                f"'{attr}' is not a Wkl attribute. {_field_redirect(attr)}"
+            )
+
         # Redirect check — must fire before chain drill so that known
         # non-location attrs (e.g. .filter) don't silently extend the chain.
         for table in (_S1_REDIRECTS, _S2_REDIRECTS, _S3_REDIRECTS):
@@ -873,8 +937,14 @@ class Wkl(_GeometryMixin):
         # identifiers (alphanumeric). Result-mode Wkls (no chain, have
         # _df) skip drill — they have no tree position.
         if self.chain or self._df is None:
-            if attr.isalnum():
-                new_chain = self.chain + [attr.lower()]
+            # Attribute names can't hold spaces, so agents write
+            # ``san_francisco``; the bundle's normalized form has no
+            # separators at all. Strip underscores before matching.
+            token = attr.replace("_", "").lower()
+            if not self.chain:
+                token = _COUNTRY_ALIASES.get(token, token)
+            if token.isalnum():
+                new_chain = self.chain + [token]
                 if len(new_chain) > 4:
                     raise ValueError(
                         "Chain too deep (max = 4). Use .by_id('<uuid>') for specific rows."
@@ -897,6 +967,32 @@ class Wkl(_GeometryMixin):
 
         raise AttributeError(
             f"'{attr}' is not part of the Wkl API. {_GENERIC_FALLBACK}"
+        )
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """Explain a call on a ``Wkl`` instead of a bare "not callable".
+
+        A misspelled method (``wkls.us.wktt()``) is read as a place name
+        first, so the parentheses land here. Name the closest public
+        method so the caller can fix the typo in one step.
+        """
+        methods = sorted(
+            n
+            for n in dir(type(self))
+            if not n.startswith("_") and callable(getattr(type(self), n))
+        )
+        token = self.chain[-1] if self.chain else ""
+        where = "wkls." + ".".join(self.chain) if self.chain else "this Wkl"
+        close = difflib.get_close_matches(token, methods, n=1, cutoff=0.6)
+        if close:
+            raise TypeError(
+                f"'{token}' is not a Wkl method; it was read as a place name "
+                f"({where}). Did you mean .{close[0]}()? "
+                f"Wkl methods: {', '.join(methods)}."
+            )
+        raise TypeError(
+            f"Wkl is not callable; drop the parentheses ({where}). "
+            f"Wkl methods: {', '.join(methods)}."
         )
 
     def __dir__(self) -> list[str]:
@@ -1151,6 +1247,19 @@ class Wkl(_GeometryMixin):
             return "Wkl(root)"
 
         df = self._resolve()
+        subtypes = self._subtype_counts()
+        header = self._repr_header(subtypes)
+        row_count = sum(subtypes.values())
+
+        if row_count == 0:
+            # No table frame for an empty result: the header already says
+            # rows=0, and the hint says what to try next.
+            if self.chain:
+                suggestions = self._get_suggestions(self.chain[-1])
+                hint = _build_error_hint(self.chain, suggestions)
+                return f"{header}\n{hint}".rstrip()
+            return header
+
         # Drop parent_id from repr — it's a raw UUID that adds noise.
         # Users who need it can call .to_dicts() or .to_arrow_table().
         cols = [c for c in df.columns if c != "parent_id"]
@@ -1162,24 +1271,27 @@ class Wkl(_GeometryMixin):
         # UUID columns aren't truncated. Going through ``repr()`` keeps us
         # on the public sedonadb API.
         base_repr = repr(display_df)
-        header = self._repr_header()
 
-        if self.chain:
-            is_empty = df.count() == 0
-            if is_empty:
-                suggestions = self._get_suggestions(self.chain[-1])
-                hint = _build_error_hint(self.chain, suggestions) + "\n"
-                return f"{header}\n{hint}{base_repr}"
+        if row_count > _REPR_ROWS:
+            # sedonadb prints the first _REPR_ROWS rows with no marker; say
+            # so, or a reader assumes the table is complete.
+            return (
+                f"{header}\n{base_repr}\n"
+                f"… {row_count - _REPR_ROWS} more rows not shown. "
+                "Use wkl[i], wkl[:n], .to_dicts() or .search() to narrow."
+            )
         return f"{header}\n{base_repr}"
 
-    def _repr_header(self) -> str:
+    def _repr_header(self, subtypes: dict[str, int] | None = None) -> str:
         """One-line state header: path/chain, row count, subtype breakdown.
 
         Formatted so an agent inspecting a ``Wkl`` can see its mode and
         size at a glance. ``path=`` is used when the chain resolves to a
         single row (round-trippable); ``chain=`` is used otherwise.
+        ``subtypes`` lets ``__repr__`` share one count query.
         """
-        subtypes = self._subtype_counts()
+        if subtypes is None:
+            subtypes = self._subtype_counts()
         row_count = sum(subtypes.values())
 
         parts: list[str] = []
@@ -1296,7 +1408,7 @@ class Wkl(_GeometryMixin):
         return self._df
 
     def _get_suggestions(
-        self, failed_name: str, n: int = 5, max_distance: int = 15
+        self, failed_name: str, n: int = 5, max_distance: int = 12
     ) -> list[str]:
         """Get similar location names for "did you mean" suggestions.
 
@@ -1306,7 +1418,9 @@ class Wkl(_GeometryMixin):
         Args:
             failed_name: The name that wasn't found.
             n: Maximum number of suggestions to return.
-            max_distance: Maximum Levenshtein score for city-level (default 15).
+            max_distance: Maximum score for city-level suggestions (default
+                12: exact, prefix and substring matches plus up to two
+                edits; anything farther is noise, not a suggestion).
 
         Returns:
             List of chainable location names (lowercase, no spaces/special chars),
@@ -1408,8 +1522,13 @@ class Wkl(_GeometryMixin):
         instead.
 
         Returns:
-            pyarrow.Table with metadata columns plus a 'geometry' column
-            typed as ``geoarrow.wkb<OGC:CRS84>``.
+            pyarrow.Table with the full Overture division_area schema —
+            id, country, region, subtype, names, sources, admin_level,
+            class, is_land, is_territorial, division_id, version, bbox —
+            plus 'geometry' typed as ``geoarrow.wkb<OGC:CRS84>``. The
+            display name is ``names.primary`` (a struct field); the flat
+            ``name_primary`` / ``name_en`` / ``parent_id`` keys exist only
+            on ``to_dicts()``.
 
         Raises:
             ValueError: If the chain is empty and no cached DataFrame is
@@ -1873,6 +1992,12 @@ class Wkl(_GeometryMixin):
         Returns:
             A result-mode ``Wkl`` of matching rows.
 
+        Raises:
+            TypeError: If ``query`` is not a string.
+            ValueError: If ``query`` has no letters or digits, or the chain
+                itself matches no rows (the message carries the same
+                "did you mean" hint as the chain's repr).
+
         Examples:
             >>> import wkls
             >>> wkls.search("san francisco")              # full dataset
@@ -1880,18 +2005,35 @@ class Wkl(_GeometryMixin):
             >>> wkls.us.ca.search("san")                  # scoped to CA
             >>> wkls.us.ca.search("san").search("fran")   # narrow within
         """
+        if not isinstance(query, str):
+            raise TypeError(f"search() takes a str query, got {type(query).__name__}.")
         depth = len(self.chain)
+        result_mode = depth == 0 and self._df is not None
 
         # Normalize to the dot-access form so ``search("sanfrancisco")``
         # and ``search("San Francisco")`` both match "San Francisco".
         normalized_query = _normalize_name(query)
+        if not normalized_query:
+            raise ValueError(
+                "search() needs a non-empty query with at least one letter or digit."
+            )
+
+        # A chain that matches nothing has nothing to search within. Raise
+        # the hint its repr would show instead of returning a silent empty.
+        if self.chain and self._resolve().count() == 0:
+            raise ValueError(
+                _build_error_hint(
+                    self.chain, self._get_suggestions(self.chain[-1])
+                ).strip()
+            )
 
         # Depth > 2 or result-mode: resolve to a temp view and search
         # within it. For chain-mode at depth > 2 (e.g. wkls.us.pa.yorkcounty),
-        # search the county's cities rather than the county row itself.
-        if depth > 2 or (depth == 0 and self._df is not None):
+        # search the county's cities rather than the county row itself —
+        # decided by the chain, not by whether ``_df`` happens to be cached.
+        if depth > 2 or result_mode:
             view_name = "_wkls_search_within"
-            if self._df is not None:
+            if result_mode:
                 # Result-mode: narrow within existing rows.
                 resolved = self._df
             else:
@@ -1944,3 +2086,9 @@ def _wkl_from_arrow_slice(table: pa.Table) -> Wkl:
     ``_df`` for downstream ``.wkt()`` / ``.path`` / ``.parent`` calls.
     """
     return Wkl(_df=_bootstrap.sedona.create_data_frame(table))
+
+
+# Let ``typing.get_type_hints()`` resolve the geometry mixin's ``self: Wkl``
+# annotations at runtime: tool-schema generators (pydantic, LangChain) call
+# it on exactly wkt/wkb/geojson, and the mixin imports Wkl for mypy only.
+_geometry.Wkl = Wkl  # type: ignore[attr-defined]
