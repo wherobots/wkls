@@ -12,6 +12,7 @@ DataFrame row, including:
 from __future__ import annotations
 
 import os
+import re
 import types
 
 import pytest
@@ -105,6 +106,16 @@ def test_repr_header_empty_result():
     assert header == "Wkl(rows=0)"
 
 
+def test_repr_caps_rendered_rows_at_ten():
+    """A big result renders 10 data rows; the header carries the true count."""
+    r = repr(wkls.us.regions())
+    assert r.splitlines()[0] == "Wkl(rows=51, subtype='region')"
+    uuid_rows = [
+        ln for ln in r.splitlines() if re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-", ln)
+    ]
+    assert len(uuid_rows) == 10
+
+
 def test_module_docstring_leads_with_quickstart():
     """help(wkls) should show agents the key patterns within the first screen."""
     doc = wkls.__doc__ or ""
@@ -176,16 +187,13 @@ def test_india_maharashtra_full_chain():
     assert wkt.startswith("MULTIPOLYGON") or wkt.startswith("POLYGON")
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Name resolution does not accent-fold: Overture's name_en for "
-        "Côte d'Ivoire contains diacritics and punctuation (ô, apostrophe) "
-        "that cannot be typed as a Python identifier. Needs a "
-        "name_normalized column or SQL-side accent stripping."
-    ),
-    strict=True,
-)
 def test_diacritic_english_fallback():
+    """English name resolves when name_primary carries diacritics.
+
+    Overture 2026-08-19.0 lists name_en "Ivory Coast" for CI (earlier
+    releases only had "Côte d'Ivoire", which no identifier can spell).
+    Name resolution still does not accent-fold; see the São Paulo xfail.
+    """
     df = wkls.ivorycoast._resolve().to_arrow_table()
     assert df.num_rows >= 1
     assert df.column("country")[0].as_py() == "CI"
