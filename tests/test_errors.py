@@ -156,3 +156,54 @@ def test_chainable_df_hides_root_only_config_methods():
     us = wkls.us
     for name in ("configure", "overture_version", "overture_releases"):
         assert not hasattr(us, name), f"{name} should be hidden on chained Wkl"
+
+
+# ---------- Wrong-guess paths ----------
+
+
+def test_call_on_misspelled_method_names_the_closest_method():
+    """``wkls.us.wktt()`` names ``.wkt()`` instead of a bare 'not callable'."""
+    with pytest.raises(TypeError, match=r"Did you mean \.wkt\(\)"):
+        wkls.us.wktt()
+    with pytest.raises(TypeError, match=r"Did you mean \.countries\(\)"):
+        wkls.countrie()
+
+
+def test_call_on_a_real_place_says_drop_the_parentheses():
+    with pytest.raises(TypeError, match=r"drop the parentheses \(wkls\.us\)"):
+        wkls.us()
+
+
+def test_field_attribute_redirects_to_to_dicts():
+    """Row fields are read via to_dicts(), and the error says so."""
+    row = wkls.us.tn.search("franklin")[0]
+    with pytest.raises(AttributeError, match=r"to_dicts\(\)\[0\]\['name_primary'\]"):
+        _ = row.name_primary
+    with pytest.raises(AttributeError, match=r"to_dicts\(\)\[0\]\['name_en'\]"):
+        _ = row.name
+    with pytest.raises(AttributeError, match=r"\.wkt\(\)"):
+        _ = row.geometry
+
+
+def test_search_rejects_non_string_and_empty_queries():
+    with pytest.raises(TypeError, match="str query"):
+        wkls.search(123)
+    with pytest.raises(ValueError, match="non-empty"):
+        wkls.search("")
+    with pytest.raises(ValueError, match="non-empty"):
+        wkls.us.search("  - ")
+
+
+def test_search_on_an_empty_scope_raises_the_chain_hint():
+    """``wkls.zz.search('x')`` used to return a silent ``Wkl(rows=0)``."""
+    with pytest.raises(ValueError, match="No results found for: zz"):
+        wkls.zz.search("london")
+    with pytest.raises(ValueError, match="No results found for: us.ca.sanfransisco"):
+        wkls.us.ca.sanfransisco.search("x")
+
+
+def test_far_suggestions_are_dropped():
+    """Only near misses are suggested; 'sananselmo' is five edits away."""
+    r = repr(wkls.us.ca.sanfransisco)
+    assert "sanfrancisco" in r
+    assert "sananselmo" not in r
