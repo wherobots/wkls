@@ -224,6 +224,15 @@ For metadata-only inspection (no geometry fetch), use `.to_dicts()`:
    fetched from Overture Maps GeoParquet on S3 via
    [Apache SedonaDB](https://sedona.apache.org/sedonadb/).
 
+### Troubleshooting
+
+**`ArrowKeyError: Attempted to register factory for scheme 'file'`** from
+pyarrow or GeoPandas after `import wkls`. SedonaDB 0.4 and later load a GDAL
+shared library when imported, and Homebrew and conda GDAL builds link their
+own Arrow, which conflicts with pyarrow's. wkls warns at import when this has
+happened. Fix: `pip install pyogrio` (or rasterio); SedonaDB then uses the GDAL
+bundled in that wheel.
+
 ## Contributing
 
 We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started, development setup, and submission guidelines.

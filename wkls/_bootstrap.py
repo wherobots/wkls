@@ -9,6 +9,7 @@ from typing import Any, Callable
 import sedonadb
 
 from . import data, queries
+from ._compat import _warn_if_gdal_broke_pyarrow
 from ._version import _overture_uri, _resolve_overture_version
 
 
@@ -151,3 +152,4 @@ _row_info: dict[str, dict[str, object]] = {}
 sedona = _initialize_table()
 
 _seed_country_info(sedona)
+_warn_if_gdal_broke_pyarrow()

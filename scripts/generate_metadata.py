@@ -226,19 +226,24 @@ def generate_metadata(version: str) -> None:
         f"Writing parquet (compression={_COMPRESSION}, level={_COMPRESSION_LEVEL})..."
     )
     _OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    pq.write_table(
-        table,
-        str(_OUTPUT_PATH),
-        compression=_COMPRESSION,
-        compression_level=_COMPRESSION_LEVEL,
-        data_page_size=_DATA_PAGE_SIZE,
-    )
+    # Write through a file object rather than a path: pyarrow's
+    # LocalFileSystem is unusable on hosts where sedonadb loaded an
+    # Arrow-linked GDAL (see wkls._compat._warn_if_gdal_broke_pyarrow).
+    with open(_OUTPUT_PATH, "wb") as sink:
+        pq.write_table(
+            table,
+            sink,
+            compression=_COMPRESSION,
+            compression_level=_COMPRESSION_LEVEL,
+            data_page_size=_DATA_PAGE_SIZE,
+        )
 
     size_mb = os.path.getsize(_OUTPUT_PATH) / (1024 * 1024)
     print(f"Done! File size: {size_mb:.1f} MB")
 
     # Verify the embedded metadata
-    meta = pq.read_metadata(str(_OUTPUT_PATH))
+    with open(_OUTPUT_PATH, "rb") as source:
+        meta = pq.read_metadata(source)
     stored_version = meta.metadata.get(b"overture_version", b"").decode()
     print(f"Embedded overture_version: {stored_version}")
 
