@@ -171,14 +171,14 @@ eval(resolved.path).wkt() == resolved.wkt()   # True
 
 ```python
 wkls.overture_releases()  # list currently available versions
-wkls.configure(overture_version="2026-04-15.0")
+wkls.configure(overture_version="2026-09-23.0")
 wkls.overture_version()   # current version
 ```
 
 Or set the `WKLS_OVERTURE_VERSION` environment variable:
 
 ```bash
-export WKLS_OVERTURE_VERSION=2026-04-15.0
+export WKLS_OVERTURE_VERSION=2026-09-23.0
 ```
 
 Priority: `configure()` > environment variable > auto-detect.
@@ -223,6 +223,15 @@ For metadata-only inspection (no geometry fetch), use `.to_dicts()`:
 2. **Geometry fetch** — when you call `.wkt()`, `.wkb()`, or `.geojson()`, the geometry is
    fetched from Overture Maps GeoParquet on S3 via
    [Apache SedonaDB](https://sedona.apache.org/sedonadb/).
+
+### Troubleshooting
+
+**`ArrowKeyError: Attempted to register factory for scheme 'file'`** from
+pyarrow or GeoPandas after `import wkls`. SedonaDB 0.4 and later load a GDAL
+shared library when imported, and Homebrew and conda GDAL builds link their
+own Arrow, which conflicts with pyarrow's. wkls warns at import when this has
+happened. Fix: `pip install pyogrio` (or rasterio); SedonaDB then uses the GDAL
+bundled in that wheel.
 
 ## Contributing
 
