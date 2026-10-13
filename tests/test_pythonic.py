@@ -19,6 +19,8 @@ validates.
 
 from __future__ import annotations
 
+import typing
+
 import pyarrow as pa
 import pytest
 import sedonadb
@@ -406,3 +408,10 @@ def test_redirect_fires_on_chain_mode():
     """Known DataFrame verbs redirect even on chain-mode Wkls."""
     with pytest.raises(AttributeError, match="search"):
         wkls.us.ca.filter  # noqa: B018
+
+
+def test_geometry_methods_have_resolvable_type_hints():
+    """Tool-schema generators call get_type_hints(); the mixin's hints must resolve."""
+    for name in ("wkt", "wkb", "geojson", "search", "to_dicts", "to_arrow_table"):
+        hints = typing.get_type_hints(getattr(wkls.Wkl, name))
+        assert "return" in hints, name

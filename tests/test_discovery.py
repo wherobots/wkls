@@ -605,3 +605,19 @@ def test_counties_at_county_level_includes_self():
     rows = counties.to_dicts()
     assert rows[0]["name_primary"] == "San Francisco"
     assert rows[0]["subtype"] == "county"
+
+
+def test_root_dir_lists_every_listing_method_and_the_exception():
+    entries = dir(wkls)
+    for name in (
+        "countries",
+        "dependencies",
+        "regions",
+        "counties",
+        "cities",
+        "subtypes",
+        "search",
+        "by_id",
+        "AmbiguousLocationError",
+    ):
+        assert name in entries, name

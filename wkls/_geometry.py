@@ -54,7 +54,6 @@ class _GeometryMixin:
         from . import core as _core
         from .core import AmbiguousLocationError, _build_error_hint
 
-        _core._ensure_overture_loaded()
         df = self._resolve()
         row_count = df.count()
         if row_count == 0:
@@ -66,7 +65,7 @@ class _GeometryMixin:
             raise ValueError("No rows to resolve into a geometry.")
 
         if row_count > 1:
-            raise AmbiguousLocationError(self._ambiguity_message(df))
+            raise AmbiguousLocationError(self._ambiguity_message(df), candidates=self)
 
         row = df.head(1).to_arrow_table()
         gers_id = row.column("id")[0].as_py()
@@ -74,6 +73,9 @@ class _GeometryMixin:
         region = row.column("region")[0].as_py()
         subtype = row.column("subtype")[0].as_py()
         name_primary = row.column("name_primary")[0].as_py()
+
+        # Only now touch S3: every error above is answered from the bundle.
+        _core._ensure_overture_loaded()
 
         base_conditions = [
             "country = $country",
@@ -118,7 +120,11 @@ class _GeometryMixin:
         )
 
     def wkt(self: Wkl) -> str:
-        """Get Well-Known Text (WKT) geometry for the first result.
+        """Get Well-Known Text (WKT) geometry for a single-row Wkl.
+
+        Fetches from Overture on S3 (2–10 s, not cached). Output can run
+        to more than 1 MB for a large state; check ``len()`` before
+        printing. For many rows call ``to_arrow_table()`` once instead.
 
         Returns:
             WKT string representation of the geometry.
@@ -130,7 +136,11 @@ class _GeometryMixin:
         return self._get_geom_expr("ST_AsText(geometry)")
 
     def wkb(self: Wkl) -> bytes:
-        """Get Well-Known Binary (WKB) geometry for the first result.
+        """Get Well-Known Binary (WKB) geometry for a single-row Wkl.
+
+        Fetches from Overture on S3 (2–10 s, not cached). Output can run
+        to more than 1 MB for a large state; check ``len()`` before
+        printing. For many rows call ``to_arrow_table()`` once instead.
 
         Returns:
             Binary WKB representation of the geometry.
@@ -142,7 +152,11 @@ class _GeometryMixin:
         return self._get_geom_expr("ST_AsWKB(geometry)")
 
     def geojson(self: Wkl) -> str:
-        """Get GeoJSON geometry for the first result.
+        """Get GeoJSON geometry for a single-row Wkl.
+
+        Fetches from Overture on S3 (2–10 s, not cached). Output can run
+        to more than 1 MB for a large state; check ``len()`` before
+        printing. For many rows call ``to_arrow_table()`` once instead.
 
         Returns:
             GeoJSON string representation of the geometry.
