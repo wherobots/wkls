@@ -103,6 +103,10 @@ Configuration — wkls defaults to the latest Overture Maps release:
     WKLS_OVERTURE_VERSION=2026-08-19.0     # env var, checked at import
     WKLS_DEBUG=1                           # env var: print every SQL query
 
+A release still uploading to S3 is skipped in favour of the one before
+it; an id missing from the chosen release is retried in the release the
+bundled metadata came from.
+
 Columns — .to_dicts() returns flat rows with these keys:
 
     id, country, region, subtype, name_primary, name_en, parent_id

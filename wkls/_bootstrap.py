@@ -13,6 +13,8 @@ from . import data, queries
 from ._compat import _warn_if_gdal_broke_pyarrow
 from ._version import _overture_uri, _resolve_overture_version
 
+_S3_READ_OPTIONS = {"aws.skip_signature": True, "aws.region": "us-west-2"}
+
 
 def _log_and_query(
     exec_fn: Callable[..., sedonadb.dataframe.DataFrame],
@@ -124,13 +126,30 @@ def _ensure_overture_loaded(*, force: bool = False) -> None:
     if _current_overture_version is None:
         _current_overture_version = _resolve_overture_version()
     sedona.read_parquet(
-        _overture_uri(_current_overture_version),
-        options={
-            "aws.skip_signature": True,
-            "aws.region": "us-west-2",
-        },
+        _overture_uri(_current_overture_version), options=_S3_READ_OPTIONS
     ).to_view("overture", overwrite=True)
     _overture_view_loaded = True
+
+
+def _ensure_overture_view(version: str) -> str | None:
+    """Register the Overture GeoParquet of ``version`` under its own view name.
+
+    Used by the geometry fallback when the active release has no row for a
+    resolved id. Registered once per version per process. Returns the view
+    name, or None when that release cannot be read from S3 right now; a
+    failure is not cached, so a transient outage does not disable the
+    fallback for the life of the process.
+    """
+    if version not in _overture_views:
+        name = "overture_" + version.replace("-", "_").replace(".", "_")
+        try:
+            sedona.read_parquet(
+                _overture_uri(version), options=_S3_READ_OPTIONS
+            ).to_view(name, overwrite=True)
+        except Exception:  # noqa: BLE001 - aged off S3, or S3 unreachable
+            return None
+        _overture_views[version] = name
+    return _overture_views[version]
 
 
 # Module-level state for the active Overture version
@@ -139,6 +158,9 @@ _current_overture_version: str | None = None
 # True once the remote GeoParquet has been registered as the
 # ``overture`` SedonaDB view.
 _overture_view_loaded: bool = False
+
+# Extra per-release views registered by ``_ensure_overture_view``.
+_overture_views: dict[str, str] = {}
 
 # Cache for country identifier -> (canonical ISO, has_region).
 # Keyed by the lowercased raw identifier (ISO or name); populated once per

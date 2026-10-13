@@ -192,6 +192,12 @@ export WKLS_OVERTURE_VERSION=2026-09-23.0
 
 Priority: `configure()` > environment variable > auto-detect.
 
+Auto-detect skips a release whose divisions files are still uploading (a new
+release lists on S3 minutes before its data is complete) and uses the one
+before it. If the chosen release has no row for a resolved id, the geometry
+call retries in the release the bundled metadata was built from, since a
+small share of ids change between releases.
+
 Overture retains only the 2 most recent releases on S3, so long-lived
 pins eventually become invalid. Use `overture_releases()` to check
 what's currently available.
