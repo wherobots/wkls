@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from . import _bootstrap
+from ._version import _bundled_overture_version
 
 if TYPE_CHECKING:
     from .core import Wkl
@@ -33,11 +34,17 @@ class _GeometryMixin:
         Path 1 (almost always): ``WHERE … AND id = '<gers_id>'``. ``id``
         is globally unique, so this returns the single matching row.
 
-        Path 2 (only if path 1 returns 0 rows — city-tier only): fallback
-        to ``WHERE … AND names.primary = '<name>'``. Handles the rare
-        case of GERS id drift across Overture releases. is_land stays in
-        the filter here because a name like "San Francisco" can match
-        both land and territorial-water rows; we want the land one.
+        Path 2 (only if path 1 returns 0 rows): the same id lookup in the
+        release the bundled metadata was built from, when that differs
+        from the active release and is still on S3. About 0.3% of
+        locality ids change per Overture release, so the live release can
+        lack a row the bundle still resolves.
+
+        Path 3 (city-tier only, after both id lookups miss): fallback to
+        ``WHERE … AND names.primary = '<name>'`` on the active release.
+        is_land stays in the filter here because a name like "San
+        Francisco" can match both land and territorial-water rows; we
+        want the land one.
 
         Args:
             expr: SQL expression to apply to the geometry column.
@@ -87,10 +94,12 @@ class _GeometryMixin:
             base_conditions.append("region = $region")
             base_params["region"] = region
 
-        def _fetch(extra_clause: str, extra_params: dict[str, str]) -> Any | None:
+        def _fetch(
+            extra_clause: str, extra_params: dict[str, str], view: str = "overture"
+        ) -> Any | None:
             clauses = " AND ".join(base_conditions + [extra_clause])
             tbl = _bootstrap.sedona.sql(
-                f"SELECT {expr} FROM overture WHERE {clauses} LIMIT 1",
+                f"SELECT {expr} FROM {view} WHERE {clauses} LIMIT 1",
                 params={**base_params, **extra_params},
             ).to_arrow_table()
             if tbl.num_rows == 0:
@@ -102,8 +111,19 @@ class _GeometryMixin:
         if result is not None:
             return result
 
-        # Path 2: id drifted — only city-tier subtypes use names.primary
-        # as a secondary key. Country/region/dependency are unique by
+        # Path 2: the live release dropped or renumbered the id; the
+        # bundle's own release still has it. One extra query, misses only.
+        active = _bootstrap._current_overture_version
+        bundled = _bundled_overture_version()
+        if bundled and bundled != active:
+            view = _bootstrap._ensure_overture_view(bundled)
+            if view is not None:
+                result = _fetch("id = $id", {"id": gers_id}, view=view)
+                if result is not None:
+                    return result
+
+        # Path 3: names.primary — only city-tier subtypes use it as a
+        # secondary key. Country/region/dependency are unique by
         # country+region+subtype, so no fallback possible or needed there.
         if subtype in ("county", "locality", "localadmin"):
             result = _fetch(
@@ -114,9 +134,11 @@ class _GeometryMixin:
 
         chain_str = ".".join(self.chain)
         raise ValueError(
-            f"No geometry found for: {chain_str} "
+            f"No geometry found for: {chain_str} in Overture {active} "
             f"(country={country}, region={region}, subtype={subtype}, "
-            f"id={gers_id}, name={name_primary})"
+            f"id={gers_id}, name={name_primary}). To query another release, "
+            "set WKLS_OVERTURE_VERSION or call wkls.configure(); "
+            "wkls.overture_releases() lists what is on S3."
         )
 
     def wkt(self: Wkl) -> str:
