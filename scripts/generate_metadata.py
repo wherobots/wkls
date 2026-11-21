@@ -50,6 +50,10 @@ _OUTPUT_PATH = (
 _COMPRESSION = "zstd"
 _COMPRESSION_LEVEL = 18
 _DATA_PAGE_SIZE = 1 << 20  # 1 MB
+# One row group would make every lookup decode the whole file. Groups of this
+# size let SedonaDB skip the ones a country/region filter rules out, using
+# their min/max statistics on the sorted columns.
+_ROW_GROUP_SIZE = 65_536
 
 
 def list_s3_releases() -> list[str]:
@@ -236,6 +240,7 @@ def generate_metadata(version: str) -> None:
             compression=_COMPRESSION,
             compression_level=_COMPRESSION_LEVEL,
             data_page_size=_DATA_PAGE_SIZE,
+            row_group_size=_ROW_GROUP_SIZE,
         )
 
     size_mb = os.path.getsize(_OUTPUT_PATH) / (1024 * 1024)
